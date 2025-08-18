@@ -4,8 +4,10 @@ export interface AuthRequest extends Request {
         sub: string;
         email: string;
         role: 'SUPERADMIN' | 'SUBADMIN' | 'AGENT';
-        teamId?: string;
-        zoneId?: string;
+        primaryTeamId?: string;
+        primaryZoneId?: string;
+        teamIds?: string[] | undefined;
+        zoneIds?: string[] | undefined;
         id?: string;
     };
 }

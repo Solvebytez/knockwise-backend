@@ -36,15 +36,26 @@ Object.defineProperty(exports, "__esModule", { value: true });
 exports.AgentZoneAssignment = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
 const AgentZoneAssignmentSchema = new mongoose_1.Schema({
-    agentId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    agentId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: false, index: true },
     zoneId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Zone', required: true, index: true },
     teamId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Team', default: null, index: true },
     effectiveFrom: { type: Date, required: true, index: true },
     effectiveTo: { type: Date, default: null, index: true },
-    createdById: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
+    status: { type: String, enum: ['ACTIVE', 'INACTIVE', 'COMPLETED', 'CANCELLED'], default: 'ACTIVE', index: true },
+    assignedBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true },
 }, { timestamps: true });
+// Add validation to ensure either agentId or teamId is provided
+AgentZoneAssignmentSchema.pre('validate', function (next) {
+    if (!this.agentId && !this.teamId) {
+        next(new Error('Either agentId or teamId must be provided'));
+    }
+    else {
+        next();
+    }
+});
 AgentZoneAssignmentSchema.index({ agentId: 1, effectiveTo: 1 });
 AgentZoneAssignmentSchema.index({ zoneId: 1, effectiveTo: 1 });
+AgentZoneAssignmentSchema.index({ agentId: 1, status: 1 });
 exports.AgentZoneAssignment = mongoose_1.default.models.AgentZoneAssignment ||
     mongoose_1.default.model('AgentZoneAssignment', AgentZoneAssignmentSchema);
 exports.default = exports.AgentZoneAssignment;

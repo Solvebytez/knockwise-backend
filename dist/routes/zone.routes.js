@@ -7,6 +7,76 @@ const validator_1 = require("../utils/validator");
 const validators_1 = require("../validators");
 const router = (0, express_1.Router)();
 router.use(auth_1.requireAuth);
+// Zone overlap checking (before creation)
+/**
+ * @openapi
+ * /api/zones/check-overlap:
+ *   post:
+ *     summary: Check for zone overlaps before creation
+ *     tags: [Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [boundary]
+ *             properties:
+ *               boundary:
+ *                 type: object
+ *                 required: [type, coordinates]
+ *                 properties:
+ *                   type:
+ *                     type: string
+ *                     enum: [Polygon]
+ *                     example: "Polygon"
+ *                   coordinates:
+ *                     type: array
+ *                     items:
+ *                       type: array
+ *                       items:
+ *                         type: number
+ *                     example: [[[-74.0060, 40.7128], [-74.0061, 40.7129], [-74.0062, 40.7130], [-74.0060, 40.7128]]]
+ *               buildingData:
+ *                 type: object
+ *                 properties:
+ *                   addresses:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                     example: ["123 Main St", "456 Oak Ave"]
+ *     responses:
+ *       200:
+ *         description: Overlap check completed
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     hasOverlap:
+ *                       type: boolean
+ *                       example: false
+ *                     overlappingZones:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                     duplicateBuildings:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                     isValid:
+ *                       type: boolean
+ *                       example: true
+ */
+router.post('/check-overlap', (0, auth_1.requireRoles)(['SUPERADMIN', 'SUBADMIN']), zone_controller_1.checkZoneOverlapBeforeCreate);
 // Zone CRUD operations
 /**
  * @openapi
@@ -137,8 +207,8 @@ router.post('/create-zone', (0, auth_1.requireRoles)('SUPERADMIN', 'SUBADMIN'), 
  *         name: status
  *         schema:
  *           type: string
- *           enum: [ACTIVE, INACTIVE]
- *           example: "ACTIVE"
+ *           enum: [DRAFT, ACTIVE, INACTIVE]
+ *           example: "DRAFT"
  *     responses:
  *       200:
  *         description: List of zones with pagination
@@ -510,8 +580,8 @@ router.post('/assign-agent-to-zone', (0, auth_1.requireRoles)('SUPERADMIN', 'SUB
  *         name: status
  *         schema:
  *           type: string
- *           enum: [ACTIVE, INACTIVE]
- *           example: "ACTIVE"
+ *           enum: [DRAFT, ACTIVE, INACTIVE]
+ *           example: "DRAFT"
  *     responses:
  *       200:
  *         description: List of zone assignments
@@ -614,6 +684,147 @@ router.get('/list-assignments', (0, validator_1.validate)(validators_1.getZoneAs
  *                   example: "Assignment not found"
  */
 router.put('/remove-agent-from-zone/:assignmentId', (0, auth_1.requireRoles)('SUPERADMIN', 'SUBADMIN'), (0, validator_1.validate)(validators_1.removeAgentFromZoneValidation), zone_controller_1.removeAgentFromZone);
+// Team assignment operations
+/**
+ * @openapi
+ * /api/zones/assign-team-to-zone:
+ *   post:
+ *     summary: Assign team to zone (Superadmin/Subadmin only)
+ *     tags: [Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [teamId, zoneId]
+ *             properties:
+ *               teamId:
+ *                 type: string
+ *                 example: "507f1f77bcf86cd799439013"
+ *               zoneId:
+ *                 type: string
+ *                 example: "507f1f77bcf86cd799439012"
+ *               effectiveDate:
+ *                 type: string
+ *                 format: date-time
+ *                 example: "2024-01-15T10:30:00.000Z"
+ *     responses:
+ *       200:
+ *         description: Team assigned to zone successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Team assigned to zone successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     zone:
+ *                       type: object
+ *                       properties:
+ *                         _id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                         teamId:
+ *                           type: object
+ *                           properties:
+ *                             _id:
+ *                               type: string
+ *                             name:
+ *                               type: string
+ *                         status:
+ *                           type: string
+ *                           example: "ACTIVE"
+ *                     team:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                         agentCount:
+ *                           type: integer
+ *       404:
+ *         description: Team or zone not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Team or zone not found"
+ */
+router.post('/assign-team-to-zone', (0, auth_1.requireRoles)('SUPERADMIN', 'SUBADMIN'), zone_controller_1.assignTeamToZone);
+/**
+ * @openapi
+ * /api/zones/remove-team-from-zone/{zoneId}:
+ *   put:
+ *     summary: Remove team from zone (Superadmin/Subadmin only)
+ *     tags: [Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: zoneId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: "507f1f77bcf86cd799439012"
+ *     responses:
+ *       200:
+ *         description: Team removed from zone successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Team removed from zone successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     _id:
+ *                       type: string
+ *                     name:
+ *                       type: string
+ *                     teamId:
+ *                       type: null
+ *                     status:
+ *                       type: string
+ *                       example: "DRAFT"
+ *       404:
+ *         description: Zone not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Zone not found"
+ */
+router.put('/remove-team-from-zone/:zoneId', (0, auth_1.requireRoles)('SUPERADMIN', 'SUBADMIN'), zone_controller_1.removeTeamFromZone);
 // Geographic operations
 /**
  * @openapi
@@ -763,5 +974,356 @@ router.get('/find-by-proximity', (0, validator_1.validate)(validators_1.getZones
  *                   example: "Zone not found"
  */
 router.get('/statistics/:zoneId', (0, validator_1.validate)(validators_1.getZoneStatisticsValidation), zone_controller_1.getZoneStatistics);
+/**
+ * @openapi
+ * /api/zones/detailed-stats/{id}:
+ *   get:
+ *     summary: Get detailed zone statistics including house numbers
+ *     tags: [Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: "507f1f77bcf86cd799439012"
+ *     responses:
+ *       200:
+ *         description: Detailed zone statistics with house numbers
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     zoneId:
+ *                       type: string
+ *                       example: "507f1f77bcf86cd799439012"
+ *                     zoneName:
+ *                       type: string
+ *                       example: "Downtown District"
+ *                     buildingData:
+ *                       type: object
+ *                       properties:
+ *                         totalBuildings:
+ *                           type: integer
+ *                           example: 25
+ *                         residentialHomes:
+ *                           type: integer
+ *                           example: 25
+ *                         addresses:
+ *                           type: array
+ *                           items:
+ *                             type: string
+ *                         coordinates:
+ *                           type: array
+ *                           items:
+ *                             type: array
+ *                             items:
+ *                               type: number
+ *                         houseNumbers:
+ *                           type: object
+ *                           properties:
+ *                             odd:
+ *                               type: array
+ *                               items:
+ *                                 type: integer
+ *                             even:
+ *                               type: array
+ *                               items:
+ *                                 type: integer
+ *                     houseNumberStats:
+ *                       type: object
+ *                       properties:
+ *                         total:
+ *                           type: integer
+ *                           example: 25
+ *                         oddCount:
+ *                           type: integer
+ *                           example: 13
+ *                         evenCount:
+ *                           type: integer
+ *                           example: 12
+ *                         oddRange:
+ *                           type: object
+ *                           properties:
+ *                             min:
+ *                               type: integer
+ *                             max:
+ *                               type: integer
+ *                         evenRange:
+ *                           type: object
+ *                           properties:
+ *                             min:
+ *                               type: integer
+ *                             max:
+ *                               type: integer
+ *       404:
+ *         description: Zone not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Zone not found"
+ */
+router.get('/detailed-stats/:id', (0, validator_1.validate)(validators_1.getZoneByIdValidation), zone_controller_1.getZoneDetailedStats);
+/**
+ * @openapi
+ * /api/zones/overview-stats:
+ *   get:
+ *     summary: Get overall territory statistics for dashboard
+ *     tags: [Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Territory overview statistics
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     totalTerritories:
+ *                       type: integer
+ *                       example: 5
+ *                     activeTerritories:
+ *                       type: integer
+ *                       example: 4
+ *                     assignedTerritories:
+ *                       type: integer
+ *                       example: 4
+ *                     unassignedTerritories:
+ *                       type: integer
+ *                       example: 1
+ *                     totalResidents:
+ *                       type: integer
+ *                       example: 155
+ *                     activeResidents:
+ *                       type: integer
+ *                       example: 131
+ *                     averageCompletionRate:
+ *                       type: integer
+ *                       example: 82
+ *                     totalArea:
+ *                       type: integer
+ *                       example: 1250000
+ *                     recentActivity:
+ *                       type: integer
+ *                       example: 12
+ *                     topPerformingTerritory:
+ *                       type: object
+ *                       properties:
+ *                         name:
+ *                           type: string
+ *                           example: "South Dallas Residential"
+ *                         completionRate:
+ *                           type: integer
+ *                           example: 92
+ */
+router.get('/overview-stats', zone_controller_1.getTerritoryOverviewStats);
+/**
+ * @openapi
+ * /api/zones/{id}/residents:
+ *   get:
+ *     summary: Get residents for a specific zone
+ *     tags: [Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: "507f1f77bcf86cd799439012"
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [not-visited, interested, visited, callback, appointment, follow-up, not-interested]
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           example: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           example: 50
+ *     responses:
+ *       200:
+ *         description: Zone residents with status summary
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     residents:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           _id:
+ *                             type: string
+ *                           address:
+ *                             type: string
+ *                           coordinates:
+ *                             type: array
+ *                             items:
+ *                               type: number
+ *                           houseNumber:
+ *                             type: integer
+ *                           status:
+ *                             type: string
+ *                           notes:
+ *                             type: string
+ *                           phone:
+ *                             type: string
+ *                           email:
+ *                             type: string
+ *                           lastVisited:
+ *                             type: string
+ *                             format: date-time
+ *                     statusSummary:
+ *                       type: object
+ *                       properties:
+ *                         "not-visited":
+ *                           type: integer
+ *                         interested:
+ *                           type: integer
+ *                         visited:
+ *                           type: integer
+ *                         callback:
+ *                           type: integer
+ *                         appointment:
+ *                           type: integer
+ *                         "follow-up":
+ *                           type: integer
+ *                         "not-interested":
+ *                           type: integer
+ *                     pagination:
+ *                       type: object
+ *                       properties:
+ *                         page:
+ *                           type: integer
+ *                         limit:
+ *                           type: integer
+ *                         total:
+ *                           type: integer
+ *                         pages:
+ *                           type: integer
+ */
+router.get('/:id/residents', (0, validator_1.validate)(validators_1.getZoneByIdValidation), zone_controller_1.getZoneResidents);
+/**
+ * @openapi
+ * /api/zones/residents/{residentId}:
+ *   put:
+ *     summary: Update resident status
+ *     tags: [Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: residentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: "507f1f77bcf86cd799439013"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               status:
+ *                 type: string
+ *                 enum: [not-visited, interested, visited, callback, appointment, follow-up, not-interested]
+ *                 example: "visited"
+ *               notes:
+ *                 type: string
+ *                 example: "Resident was very interested in our services"
+ *               phone:
+ *                 type: string
+ *                 example: "+1234567890"
+ *               email:
+ *                 type: string
+ *                 example: "resident@example.com"
+ *     responses:
+ *       200:
+ *         description: Resident status updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Resident status updated successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     _id:
+ *                       type: string
+ *                     address:
+ *                       type: string
+ *                     status:
+ *                       type: string
+ *                     notes:
+ *                       type: string
+ *                     phone:
+ *                       type: string
+ *                     email:
+ *                       type: string
+ *                     lastVisited:
+ *                       type: string
+ *                       format: date-time
+ *       404:
+ *         description: Resident not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Resident not found"
+ */
+router.put('/residents/:residentId', zone_controller_1.updateResidentStatus);
 exports.default = router;
 //# sourceMappingURL=zone.routes.js.map

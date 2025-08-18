@@ -42,13 +42,26 @@ const bcryptjs_1 = __importDefault(require("bcryptjs"));
 const UserSchema = new mongoose_1.Schema({
     name: { type: String, required: true, trim: true },
     email: { type: String, required: true, unique: true, lowercase: true, index: true },
+    username: { type: String, trim: true, sparse: true },
+    contactNumber: { type: String, trim: true },
     password: { type: String, required: true, select: false },
+    originalPassword: { type: String, select: false }, // Add originalPassword field
     role: { type: String, enum: ['SUPERADMIN', 'SUBADMIN', 'AGENT'], required: true, index: true },
     status: { type: String, enum: ['ACTIVE', 'INACTIVE'], default: 'ACTIVE' },
-    teamId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Team', default: null },
-    zoneId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Zone', default: null },
+    timezone: { type: String, default: 'America/New_York' }, // Default timezone
+    // Primary assignments (for backward compatibility)
+    primaryTeamId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Team', default: null },
+    primaryZoneId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Zone', default: null },
+    // Multiple assignments
+    teamIds: [{ type: mongoose_1.Schema.Types.ObjectId, ref: 'Team' }],
+    zoneIds: [{ type: mongoose_1.Schema.Types.ObjectId, ref: 'Zone' }],
+    // Track who created this user
+    createdBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true });
 UserSchema.index({ role: 1, status: 1 });
+UserSchema.index({ teamIds: 1 });
+UserSchema.index({ zoneIds: 1 });
+UserSchema.index({ createdBy: 1 });
 UserSchema.pre('save', async function hashPassword(next) {
     const user = this;
     if (!user.isModified('password'))

@@ -20,6 +20,7 @@ import propertyRoutes from './routes/property.routes';
 import routeRoutes from './routes/route.routes';
 import zoneRoutes from './routes/zone.routes';
 import activityRoutes from './routes/activity.routes';
+import teamRoutes from './routes/team.routes';
 
 const app = express();
 
@@ -70,6 +71,7 @@ app.use('/api/properties', propertyRoutes);
 app.use('/api/routes', routeRoutes);
 app.use('/api/zones', zoneRoutes);
 app.use('/api/activities', activityRoutes);
+app.use('/api/teams', teamRoutes);
 
 // Swagger Documentation
 app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));

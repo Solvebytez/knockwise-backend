@@ -10,10 +10,10 @@ exports.env = {
     nodeEnv: process.env.NODE_ENV || 'development',
     port: parseInt(process.env.PORT || '4000', 10),
     mongoUri: process.env.MONGODB_URI || 'mongodb://localhost:27017/knockwise',
-    jwtSecret: process.env.JWT_SECRET || 'change_me',
-    jwtExpiresIn: process.env.JWT_EXPIRES_IN || '15m',
-    jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || 'change_me_refresh',
-    refreshExpiresIn: process.env.REFRESH_EXPIRES_IN || '30d',
+    jwtAccessSecret: process.env.JWT_ACCESS_SECRET || "change_me",
+    jwtExpiresIn: process.env.JWT_EXPIRES_IN || "15m",
+    jwtRefreshSecret: process.env.JWT_REFRESH_SECRET || "change_me_refresh",
+    refreshExpiresIn: process.env.REFRESH_EXPIRES_IN || "30d",
     bcryptSaltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS || '10', 10),
     corsOrigin: process.env.CORS_ORIGIN || '*',
     rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW || '900000', 10),
@@ -24,6 +24,11 @@ exports.env = {
     cookieHttpOnly: true,
     cookieSameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax',
     cookieMaxAge: parseInt(process.env.COOKIE_MAX_AGE || '2592000000', 10), // 30 days in milliseconds
+    // Email configuration
+    sendgridApiKey: process.env.SENDGRID_API_KEY,
+    sendgridFromEmail: process.env.SENDGRID_FROM_EMAIL || 'noreply@knockwise.com',
+    // Frontend URL for email links
+    frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
 };
 exports.default = exports.env;
 //# sourceMappingURL=env.js.map

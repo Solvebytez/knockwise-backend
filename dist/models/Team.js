@@ -37,11 +37,12 @@ exports.Team = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
 const TeamSchema = new mongoose_1.Schema({
     name: { type: String, required: true, trim: true },
-    superadminId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    description: { type: String, trim: true },
+    createdBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     leaderId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     agentIds: [{ type: mongoose_1.Schema.Types.ObjectId, ref: 'User', index: true }],
 }, { timestamps: true });
-TeamSchema.index({ superadminId: 1, leaderId: 1 });
+TeamSchema.index({ createdBy: 1, leaderId: 1 });
 exports.Team = mongoose_1.default.models.Team || mongoose_1.default.model('Team', TeamSchema);
 exports.default = exports.Team;
 //# sourceMappingURL=Team.js.map

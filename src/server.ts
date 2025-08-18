@@ -1,6 +1,9 @@
 import { createApp } from './app';
 import { connectDatabase } from './config/database';
 import { env } from './config/env';
+import { CronService } from './services/cronService';
+import { EmailService } from './services/emailService';
+import { SocketService } from './services/socketService';
 
 const startServer = async () => {
   try {
@@ -17,6 +20,16 @@ const startServer = async () => {
       console.log(`📚 API Documentation: http://localhost:${env.port}/docs`);
       console.log(`🔍 Health Check: http://localhost:${env.port}/health`);
     });
+
+    // Initialize email service
+    EmailService.initialize();
+    
+    // Initialize Socket.IO
+    SocketService.initialize(server);
+    
+    // Initialize cron jobs for scheduled assignments
+    CronService.initializeCronJobs();
+    console.log('⏰ Cron jobs initialized');
 
     // Graceful shutdown
     process.on('SIGTERM', () => {

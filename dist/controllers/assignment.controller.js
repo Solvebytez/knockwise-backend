@@ -11,10 +11,66 @@ exports.listAssignments = listAssignments;
 exports.getMyAssignments = getMyAssignments;
 exports.getTeamAssignments = getTeamAssignments;
 const AgentZoneAssignment_1 = __importDefault(require("../models/AgentZoneAssignment"));
+const scheduledAssignmentService_1 = require("../services/scheduledAssignmentService");
 async function createAssignment(req, res) {
-    const payload = { ...req.body, createdById: req.user.sub };
-    const record = await AgentZoneAssignment_1.default.create(payload);
-    res.status(201).json(record);
+    try {
+        const payload = { ...req.body, assignedBy: req.user.sub };
+        // Validate that either agentId or teamId is provided
+        if (!payload.agentId && !payload.teamId) {
+            res.status(400).json({
+                success: false,
+                message: 'Either agentId or teamId must be provided'
+            });
+            return;
+        }
+        const effectiveFrom = new Date(payload.effectiveFrom);
+        const now = new Date();
+        // Check if this is a future assignment
+        if (effectiveFrom > now) {
+            // Create a scheduled assignment
+            const scheduledAssignment = await scheduledAssignmentService_1.ScheduledAssignmentService.createScheduledAssignment({
+                agentId: payload.agentId,
+                teamId: payload.teamId,
+                zoneId: payload.zoneId,
+                scheduledDate: effectiveFrom,
+                effectiveFrom: effectiveFrom,
+                assignedBy: req.user.sub
+            });
+            // Send scheduled assignment notifications
+            await scheduledAssignmentService_1.ScheduledAssignmentService.sendScheduledAssignmentNotifications(scheduledAssignment);
+            // Send socket notifications
+            await scheduledAssignmentService_1.ScheduledAssignmentService.sendScheduledAssignmentSocketNotifications(scheduledAssignment);
+            res.status(201).json({
+                success: true,
+                message: 'Assignment scheduled successfully',
+                data: {
+                    ...scheduledAssignment.toObject(),
+                    scheduled: true,
+                    scheduledDate: effectiveFrom
+                }
+            });
+        }
+        else {
+            // Create immediate assignment
+            const record = await AgentZoneAssignment_1.default.create(payload);
+            res.status(201).json({
+                success: true,
+                message: 'Assignment created successfully',
+                data: {
+                    ...record.toObject(),
+                    scheduled: false
+                }
+            });
+        }
+    }
+    catch (error) {
+        console.error('Error creating assignment:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Error creating assignment',
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
 }
 async function getAssignmentById(req, res) {
     try {

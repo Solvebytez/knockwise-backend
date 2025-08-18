@@ -2,22 +2,24 @@ import mongoose, { Schema, Document, Model } from 'mongoose';
 
 export interface ITeam extends Document {
   name: string;
-  superadminId: mongoose.Types.ObjectId; // owner
-  leaderId: mongoose.Types.ObjectId; // subadmin
+  description?: string;
+  createdBy: mongoose.Types.ObjectId; // owner (superadmin or subadmin)
+  leaderId: mongoose.Types.ObjectId; // team leader
   agentIds: mongoose.Types.ObjectId[]; // agents in team
 }
 
 const TeamSchema = new Schema<ITeam>(
   {
     name: { type: String, required: true, trim: true },
-    superadminId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
+    description: { type: String, trim: true },
+    createdBy: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     leaderId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     agentIds: [{ type: Schema.Types.ObjectId, ref: 'User', index: true }],
   },
   { timestamps: true }
 );
 
-TeamSchema.index({ superadminId: 1, leaderId: 1 });
+TeamSchema.index({ createdBy: 1, leaderId: 1 });
 
 export const Team: Model<ITeam> = mongoose.models.Team || mongoose.model<ITeam>('Team', TeamSchema);
 

@@ -5,7 +5,7 @@ export interface IAgentTeamAssignment extends Document {
   teamId: mongoose.Types.ObjectId;
   effectiveFrom: Date;
   effectiveTo?: Date | null; // null means active
-  status: 'ACTIVE' | 'INACTIVE';
+  status: 'ACTIVE' | 'INACTIVE' | 'COMPLETED' | 'CANCELLED';
   assignedBy: mongoose.Types.ObjectId;
   createdAt: Date;
   updatedAt: Date;
@@ -17,7 +17,7 @@ const AgentTeamAssignmentSchema = new Schema<IAgentTeamAssignment>(
     teamId: { type: Schema.Types.ObjectId, ref: 'Team', required: true, index: true },
     effectiveFrom: { type: Date, required: true, index: true },
     effectiveTo: { type: Date, default: null, index: true },
-    status: { type: String, enum: ['ACTIVE', 'INACTIVE'], default: 'ACTIVE', index: true },
+    status: { type: String, enum: ['ACTIVE', 'INACTIVE', 'COMPLETED', 'CANCELLED'], default: 'ACTIVE', index: true },
     assignedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
   },
   { timestamps: true }

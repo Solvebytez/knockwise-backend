@@ -2,6 +2,7 @@ import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 export declare const createZone: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 export declare const listZones: (req: AuthRequest, res: Response) => Promise<void>;
+export declare const checkZoneOverlapBeforeCreate: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 export declare const getZoneById: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 export declare const updateZone: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 export declare const deleteZone: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
@@ -10,4 +11,10 @@ export declare const getZoneAssignments: (req: AuthRequest, res: Response) => Pr
 export declare const removeAgentFromZone: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 export declare const getZonesByProximity: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 export declare const getZoneStatistics: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
+export declare const getZoneDetailedStats: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
+export declare const getZoneResidents: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
+export declare const updateResidentStatus: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
+export declare const assignTeamToZone: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
+export declare const removeTeamFromZone: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
+export declare const getTerritoryOverviewStats: (req: AuthRequest, res: Response) => Promise<void>;
 //# sourceMappingURL=zone.controller.d.ts.map

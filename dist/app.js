@@ -24,6 +24,7 @@ const property_routes_1 = __importDefault(require("./routes/property.routes"));
 const route_routes_1 = __importDefault(require("./routes/route.routes"));
 const zone_routes_1 = __importDefault(require("./routes/zone.routes"));
 const activity_routes_1 = __importDefault(require("./routes/activity.routes"));
+const team_routes_1 = __importDefault(require("./routes/team.routes"));
 const app = (0, express_1.default)();
 // Rate limiting
 const limiter = (0, express_rate_limit_1.default)({
@@ -34,12 +35,15 @@ const limiter = (0, express_rate_limit_1.default)({
         message: 'Too many requests from this IP, please try again later.'
     }
 });
+const corsOptions = {
+    origin: ['http://localhost:3000', 'http://localhost:3001'],
+    credentials: true,
+    methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+    allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+};
 // Middleware
 app.use((0, helmet_1.default)());
-app.use((0, cors_1.default)({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
-    credentials: true
-}));
+app.use((0, cors_1.default)(corsOptions));
 app.use((0, compression_1.default)());
 app.use(express_1.default.json({ limit: '10mb' }));
 app.use(express_1.default.urlencoded({ extended: true }));
@@ -65,6 +69,7 @@ app.use('/api/properties', property_routes_1.default);
 app.use('/api/routes', route_routes_1.default);
 app.use('/api/zones', zone_routes_1.default);
 app.use('/api/activities', activity_routes_1.default);
+app.use('/api/teams', team_routes_1.default);
 // Swagger Documentation
 app.use('/docs', swagger_ui_express_1.default.serve, swagger_ui_express_1.default.setup(swagger_1.swaggerSpec));
 app.get('/openapi.json', (req, res) => {

@@ -2,7 +2,7 @@ export declare const env: {
     nodeEnv: string;
     port: number;
     mongoUri: string;
-    jwtSecret: string;
+    jwtAccessSecret: string;
     jwtExpiresIn: string;
     jwtRefreshSecret: string;
     refreshExpiresIn: string;
@@ -15,6 +15,9 @@ export declare const env: {
     cookieHttpOnly: boolean;
     cookieSameSite: "strict" | "lax" | "none";
     cookieMaxAge: number;
+    sendgridApiKey: string | undefined;
+    sendgridFromEmail: string;
+    frontendUrl: string;
 };
 export default env;
 //# sourceMappingURL=env.d.ts.map

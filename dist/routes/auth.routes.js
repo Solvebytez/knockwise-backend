@@ -273,7 +273,7 @@ router.post('/login', (0, validator_1.validate)(validators_1.loginValidation), a
  *                   type: string
  *                   example: "Invalid refresh token"
  */
-router.post('/refresh', (0, validator_1.validate)(validators_1.refreshValidation), auth_controller_1.refresh);
+router.post('/refresh', auth_controller_1.refresh);
 /**
  * @openapi
  * /api/auth/logout:

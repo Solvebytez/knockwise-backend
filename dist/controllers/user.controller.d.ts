@@ -1,5 +1,7 @@
 import { Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
+export declare const updateAgentStatusOnZoneChange: (agentId: string) => Promise<void>;
+export declare const updateAgentZoneAssignment: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 export declare const createUser: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 export declare const updateUser: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 export declare const deleteUser: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
@@ -12,4 +14,9 @@ export declare const updateMyProfile: (req: AuthRequest, res: Response) => Promi
 export declare const getMyZoneInfo: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 export declare const getSystemAnalytics: (req: AuthRequest, res: Response) => Promise<void>;
 export declare const getTeamPerformance: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
+export declare const getMyCreatedAgents: (req: AuthRequest, res: Response) => Promise<void>;
+export declare const getTeamOverview: (req: AuthRequest, res: Response) => Promise<void>;
+export declare const getRecentAdditions: (req: AuthRequest, res: Response) => Promise<void>;
+export declare const bulkUpdateAgentStatuses: (req: AuthRequest, res: Response) => Promise<void>;
+export declare const getDetailedAgent: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 //# sourceMappingURL=user.controller.d.ts.map

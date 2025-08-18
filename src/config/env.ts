@@ -20,6 +20,11 @@ export const env = {
   cookieHttpOnly: true,
   cookieSameSite: process.env.NODE_ENV === 'production' ? 'strict' : 'lax' as 'strict' | 'lax' | 'none',
   cookieMaxAge: parseInt(process.env.COOKIE_MAX_AGE || '2592000000', 10), // 30 days in milliseconds
+  // Email configuration
+  sendgridApiKey: process.env.SENDGRID_API_KEY,
+  sendgridFromEmail: process.env.SENDGRID_FROM_EMAIL || 'noreply@knockwise.com',
+  // Frontend URL for email links
+  frontendUrl: process.env.FRONTEND_URL || 'http://localhost:3000',
 };
 
 export default env;

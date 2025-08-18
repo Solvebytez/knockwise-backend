@@ -35,19 +35,73 @@ exports.createAgentValidation = [
     (0, express_validator_1.body)('email')
         .isEmail()
         .normalizeEmail()
-        .withMessage('Must be a valid email address'),
+        .withMessage('Please enter a valid email address'),
+    (0, express_validator_1.body)('username')
+        .optional()
+        .isString()
+        .isLength({ min: 3 })
+        .withMessage('Username must be at least 3 characters long'),
+    (0, express_validator_1.body)('contactNumber')
+        .optional()
+        .isString()
+        .matches(/^[\+]?[1-9][\d]{0,15}$/)
+        .withMessage('Please enter a valid phone number (e.g., +1234567890)'),
     (0, express_validator_1.body)('password')
         .isString()
         .isLength({ min: 6 })
         .withMessage('Password must be at least 6 characters long'),
-    (0, express_validator_1.body)('teamId')
+    (0, express_validator_1.body)('role')
         .optional()
-        .isMongoId()
-        .withMessage('Team ID must be a valid MongoDB ObjectId'),
-    (0, express_validator_1.body)('zoneId')
+        .isIn(['SUPERADMIN', 'SUBADMIN', 'AGENT'])
+        .withMessage('Role must be one of: SUPERADMIN, SUBADMIN, AGENT'),
+    (0, express_validator_1.body)('primaryTeamId')
         .optional()
-        .isMongoId()
-        .withMessage('Zone ID must be a valid MongoDB ObjectId'),
+        .custom((value) => {
+        if (value === null || value === undefined)
+            return true;
+        const mongoose = require('mongoose');
+        return mongoose.Types.ObjectId.isValid(value);
+    })
+        .withMessage('Please select a valid team'),
+    (0, express_validator_1.body)('primaryZoneId')
+        .optional()
+        .custom((value) => {
+        if (value === null || value === undefined)
+            return true;
+        const mongoose = require('mongoose');
+        return mongoose.Types.ObjectId.isValid(value);
+    })
+        .withMessage('Please select a valid zone'),
+    (0, express_validator_1.body)('teamIds')
+        .optional()
+        .isArray()
+        .withMessage('Team IDs must be provided as a list'),
+    (0, express_validator_1.body)('teamIds.*')
+        .optional()
+        .custom((value, { req }) => {
+        // Only validate if teamIds array is not empty
+        if (req.body.teamIds && req.body.teamIds.length > 0) {
+            const mongoose = require('mongoose');
+            return mongoose.Types.ObjectId.isValid(value);
+        }
+        return true;
+    })
+        .withMessage('Each team ID must be valid'),
+    (0, express_validator_1.body)('zoneIds')
+        .optional()
+        .isArray()
+        .withMessage('Zone IDs must be provided as a list'),
+    (0, express_validator_1.body)('zoneIds.*')
+        .optional()
+        .custom((value, { req }) => {
+        // Only validate if zoneIds array is not empty
+        if (req.body.zoneIds && req.body.zoneIds.length > 0) {
+            const mongoose = require('mongoose');
+            return mongoose.Types.ObjectId.isValid(value);
+        }
+        return true;
+    })
+        .withMessage('Each zone ID must be valid'),
 ];
 exports.updateUserValidation = [
     (0, express_validator_1.param)('id')
@@ -63,6 +117,16 @@ exports.updateUserValidation = [
         .isEmail()
         .normalizeEmail()
         .withMessage('Must be a valid email address'),
+    (0, express_validator_1.body)('username')
+        .optional()
+        .isString()
+        .isLength({ min: 3 })
+        .withMessage('Username must be at least 3 characters long'),
+    (0, express_validator_1.body)('contactNumber')
+        .optional()
+        .isString()
+        .isLength({ min: 10 })
+        .withMessage('Contact number must be at least 10 characters long'),
     (0, express_validator_1.body)('password')
         .optional()
         .isString()

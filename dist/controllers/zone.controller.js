@@ -1,13 +1,34 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getZoneStatistics = exports.getZonesByProximity = exports.removeAgentFromZone = exports.getZoneAssignments = exports.assignAgentToZone = exports.deleteZone = exports.updateZone = exports.getZoneById = exports.listZones = exports.createZone = void 0;
+exports.getTerritoryOverviewStats = exports.removeTeamFromZone = exports.assignTeamToZone = exports.updateResidentStatus = exports.getZoneResidents = exports.getZoneDetailedStats = exports.getZoneStatistics = exports.getZonesByProximity = exports.removeAgentFromZone = exports.getZoneAssignments = exports.assignAgentToZone = exports.deleteZone = exports.updateZone = exports.getZoneById = exports.checkZoneOverlapBeforeCreate = exports.listZones = exports.createZone = void 0;
+const mongoose_1 = __importDefault(require("mongoose"));
 const Zone_1 = require("../models/Zone");
 const User_1 = require("../models/User");
 const AgentZoneAssignment_1 = require("../models/AgentZoneAssignment");
+const AgentTeamAssignment_1 = require("../models/AgentTeamAssignment");
+const Team_1 = require("../models/Team");
+const Resident_1 = require("../models/Resident");
+const Property_1 = require("../models/Property");
+const Lead_1 = require("../models/Lead");
+const Activity_1 = require("../models/Activity");
+const Route_1 = require("../models/Route");
+const ScheduledAssignment_1 = require("../models/ScheduledAssignment");
+const addressParser_1 = require("../utils/addressParser");
+const zoneOverlapChecker_1 = require("../utils/zoneOverlapChecker");
 // Create a new zone
 const createZone = async (req, res) => {
     try {
-        const { name, description, boundary, teamId } = req.body;
+        const { name, description, boundary, teamId, buildingData } = req.body;
+        // Validate boundary format
+        if (!(0, zoneOverlapChecker_1.validateZoneBoundary)(boundary)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid zone boundary format. Please ensure the polygon is properly closed.'
+            });
+        }
         // Check if zone name already exists
         const existingZone = await Zone_1.Zone.findOne({ name });
         if (existingZone) {
@@ -16,18 +37,80 @@ const createZone = async (req, res) => {
                 message: 'Zone with this name already exists'
             });
         }
+        // Check for overlapping zones
+        const overlapResult = await (0, zoneOverlapChecker_1.checkZoneOverlap)(boundary);
+        if (overlapResult.hasOverlap) {
+            const overlappingZoneNames = overlapResult.overlappingZones.map(zone => zone.name).join(', ');
+            return res.status(409).json({
+                success: false,
+                message: `This territory overlaps with existing zone(s): ${overlappingZoneNames}`,
+                data: {
+                    overlappingZones: overlapResult.overlappingZones,
+                    overlapPercentage: overlapResult.overlapPercentage
+                }
+            });
+        }
+        // Process building data if provided
+        let processedBuildingData = undefined;
+        if (buildingData && buildingData.addresses && buildingData.coordinates) {
+            processedBuildingData = (0, addressParser_1.processBuildingData)(buildingData.addresses, buildingData.coordinates);
+            // Check for duplicate buildings across all zones
+            const duplicateAddresses = await (0, zoneOverlapChecker_1.checkDuplicateBuildings)(processedBuildingData.addresses);
+            if (duplicateAddresses.length > 0) {
+                return res.status(409).json({
+                    success: false,
+                    message: `${duplicateAddresses.length} buildings are already assigned to other territories`,
+                    data: {
+                        duplicateAddresses,
+                        duplicateCount: duplicateAddresses.length
+                    }
+                });
+            }
+        }
+        // Determine zone status based on assignment
+        let zoneStatus = 'DRAFT';
+        if (teamId || req.body.assignedAgentId) {
+            zoneStatus = 'ACTIVE';
+        }
         const zone = new Zone_1.Zone({
             name,
             description,
             boundary,
             teamId,
+            buildingData: processedBuildingData,
+            status: zoneStatus,
             createdBy: req.user?.id
         });
         await zone.save();
+        // Save individual residents if building data is provided
+        if (processedBuildingData && processedBuildingData.addresses.length > 0) {
+            const residents = processedBuildingData.addresses.map((address, index) => {
+                const coordinates = processedBuildingData.coordinates[index];
+                const houseNumber = (0, addressParser_1.extractHouseNumber)(address);
+                return new Resident_1.Resident({
+                    zoneId: zone._id,
+                    address,
+                    coordinates,
+                    houseNumber,
+                    status: 'not-visited',
+                    createdAt: new Date(),
+                    updatedAt: new Date(),
+                });
+            });
+            await Resident_1.Resident.insertMany(residents);
+        }
+        // Get house number statistics for response
+        let houseNumberStats = null;
+        if (processedBuildingData) {
+            houseNumberStats = (0, addressParser_1.getHouseNumberStats)(processedBuildingData.houseNumbers);
+        }
         res.status(201).json({
             success: true,
             message: 'Zone created successfully',
-            data: zone
+            data: {
+                ...zone.toObject(),
+                houseNumberStats
+            }
         });
     }
     catch (error) {
@@ -52,7 +135,7 @@ const listZones = async (req, res) => {
             filter.status = status;
         // If user is not superadmin, only show zones for their team
         if (req.user?.role !== 'SUPERADMIN') {
-            filter.teamId = req.user?.teamId;
+            filter.teamId = req.user?.primaryTeamId;
         }
         const zones = await Zone_1.Zone.find(filter)
             .populate('teamId', 'name')
@@ -82,6 +165,46 @@ const listZones = async (req, res) => {
     }
 };
 exports.listZones = listZones;
+// Check zone overlap before creation
+const checkZoneOverlapBeforeCreate = async (req, res) => {
+    try {
+        const { boundary, buildingData } = req.body;
+        // Validate boundary format
+        if (!(0, zoneOverlapChecker_1.validateZoneBoundary)(boundary)) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid zone boundary format. Please ensure the polygon is properly closed.'
+            });
+        }
+        // Check for overlapping zones
+        const overlapResult = await (0, zoneOverlapChecker_1.checkZoneOverlap)(boundary);
+        // Check for duplicate buildings if building data is provided
+        let duplicateAddresses = [];
+        if (buildingData && buildingData.addresses && buildingData.addresses.length > 0) {
+            duplicateAddresses = await (0, zoneOverlapChecker_1.checkDuplicateBuildings)(buildingData.addresses);
+        }
+        res.status(200).json({
+            success: true,
+            data: {
+                hasOverlap: overlapResult.hasOverlap,
+                overlappingZones: overlapResult.overlappingZones,
+                overlapPercentage: overlapResult.overlapPercentage,
+                duplicateBuildings: duplicateAddresses,
+                duplicateCount: duplicateAddresses.length,
+                isValid: !overlapResult.hasOverlap && duplicateAddresses.length === 0
+            }
+        });
+    }
+    catch (error) {
+        console.error('Error checking zone overlap:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to check zone overlap',
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+};
+exports.checkZoneOverlapBeforeCreate = checkZoneOverlapBeforeCreate;
 // Get zone by ID
 const getZoneById = async (req, res) => {
     try {
@@ -96,7 +219,7 @@ const getZoneById = async (req, res) => {
             });
         }
         // Check if user has access to this zone
-        if (req.user?.role !== 'SUPERADMIN' && zone.teamId?.toString() !== req.user?.teamId) {
+        if (req.user?.role !== 'SUPERADMIN' && zone.teamId?.toString() !== req.user?.primaryTeamId) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied to this zone'
@@ -130,7 +253,7 @@ const updateZone = async (req, res) => {
             });
         }
         // Check permissions
-        if (req.user?.role !== 'SUPERADMIN' && zone.teamId?.toString() !== req.user?.teamId) {
+        if (req.user?.role !== 'SUPERADMIN' && zone.teamId?.toString() !== req.user?.primaryTeamId) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied to update this zone'
@@ -175,7 +298,7 @@ const deleteZone = async (req, res) => {
             });
         }
         // Check permissions
-        if (req.user?.role !== 'SUPERADMIN' && zone.teamId?.toString() !== req.user?.teamId) {
+        if (req.user?.role !== 'SUPERADMIN' && zone.teamId?.toString() !== req.user?.primaryTeamId) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied to delete this zone'
@@ -189,14 +312,48 @@ const deleteZone = async (req, res) => {
         if (activeAssignments.length > 0) {
             return res.status(400).json({
                 success: false,
-                message: 'Cannot delete zone with active agent assignments'
+                message: 'Cannot delete zone with active agent assignments. Please deactivate all assignments first.'
             });
         }
-        await Zone_1.Zone.findByIdAndDelete(id);
-        res.json({
-            success: true,
-            message: 'Zone deleted successfully'
-        });
+        // Start a database transaction to ensure all deletions are atomic
+        const session = await mongoose_1.default.startSession();
+        session.startTransaction();
+        try {
+            // Delete all associated data in the correct order to avoid foreign key constraint issues
+            // 1. Delete all agent zone assignments (both active and inactive)
+            await AgentZoneAssignment_1.AgentZoneAssignment.deleteMany({ zoneId: id }, { session });
+            // 2. Delete all scheduled assignments
+            await ScheduledAssignment_1.ScheduledAssignment.deleteMany({ zoneId: id }, { session });
+            // 3. Update properties to remove zone reference
+            await Property_1.Property.updateMany({ zoneId: id }, { $unset: { zoneId: 1 } }, { session });
+            // 4. Update leads to remove zone reference
+            await Lead_1.Lead.updateMany({ zoneId: id }, { $unset: { zoneId: 1 } }, { session });
+            // 5. Update activities to remove zone reference
+            await Activity_1.Activity.updateMany({ zoneId: id }, { $unset: { zoneId: 1 } }, { session });
+            // 6. Update routes to remove zone reference
+            await Route_1.Route.updateMany({ zoneId: id }, { $unset: { zoneId: 1 } }, { session });
+            // 7. Update users to remove zone references
+            await User_1.User.updateMany({ primaryZoneId: id }, { $unset: { primaryZoneId: 1 } }, { session });
+            // Remove from zoneIds array in users
+            await User_1.User.updateMany({ zoneIds: id }, { $pull: { zoneIds: id } }, { session });
+            // 8. Finally, delete the zone itself
+            await Zone_1.Zone.findByIdAndDelete(id, { session });
+            // Commit the transaction
+            await session.commitTransaction();
+            res.json({
+                success: true,
+                message: 'Zone and all associated data deleted successfully'
+            });
+        }
+        catch (error) {
+            // If any operation fails, rollback the transaction
+            await session.abortTransaction();
+            throw error;
+        }
+        finally {
+            // End the session
+            session.endSession();
+        }
     }
     catch (error) {
         console.error('Error deleting zone:', error);
@@ -229,7 +386,7 @@ const assignAgentToZone = async (req, res) => {
             });
         }
         // Check permissions
-        if (req.user?.role !== 'SUPERADMIN' && zone.teamId?.toString() !== req.user?.teamId) {
+        if (req.user?.role !== 'SUPERADMIN' && zone.teamId?.toString() !== req.user?.primaryTeamId) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied to assign to this zone'
@@ -248,6 +405,13 @@ const assignAgentToZone = async (req, res) => {
         await assignment.save();
         // Update agent's zoneId
         await User_1.User.findByIdAndUpdate(agentId, { zoneId });
+        // Update zone status from DRAFT to ACTIVE if it was in draft
+        if (zone.status === 'DRAFT') {
+            await Zone_1.Zone.findByIdAndUpdate(zoneId, {
+                status: 'ACTIVE',
+                assignedAgentId: agentId
+            });
+        }
         res.status(201).json({
             success: true,
             message: 'Agent assigned to zone successfully',
@@ -307,7 +471,7 @@ const removeAgentFromZone = async (req, res) => {
         }
         // Check permissions
         if (req.user?.role !== 'SUPERADMIN' &&
-            assignment.zoneId?.teamId?.toString() !== req.user?.teamId) {
+            assignment.zoneId?.teamId?.toString() !== req.user?.primaryTeamId) {
             return res.status(403).json({
                 success: false,
                 message: 'Access denied to remove this assignment'
@@ -397,7 +561,6 @@ const getZoneStatistics = async (req, res) => {
         let area = 0;
         if (zone.boundary && zone.boundary.type === 'Polygon') {
             // Calculate area in square meters (simplified calculation)
-            // In a real implementation, you'd use a proper geospatial library
             area = 1000000; // Placeholder
         }
         res.json({
@@ -423,4 +586,360 @@ const getZoneStatistics = async (req, res) => {
     }
 };
 exports.getZoneStatistics = getZoneStatistics;
+// Get detailed zone statistics including house numbers
+const getZoneDetailedStats = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const zone = await Zone_1.Zone.findById(id)
+            .populate('teamId', 'name')
+            .populate('assignedAgentId', 'name email')
+            .populate('createdBy', 'name email');
+        if (!zone) {
+            return res.status(404).json({
+                success: false,
+                message: 'Zone not found'
+            });
+        }
+        // Get active assignments
+        const activeAssignments = await AgentZoneAssignment_1.AgentZoneAssignment.find({
+            zoneId: id,
+            status: 'ACTIVE'
+        }).populate('agentId', 'name email');
+        // Get house number statistics
+        let houseNumberStats = null;
+        if (zone.buildingData && zone.buildingData.houseNumbers) {
+            houseNumberStats = (0, addressParser_1.getHouseNumberStats)(zone.buildingData.houseNumbers);
+        }
+        // Calculate area (simplified)
+        let area = 0;
+        if (zone.boundary && zone.boundary.type === 'Polygon') {
+            // Calculate area in square meters (simplified calculation)
+            area = 1000000; // Placeholder
+        }
+        res.json({
+            success: true,
+            data: {
+                zoneId: zone._id,
+                zoneName: zone.name,
+                description: zone.description,
+                boundary: zone.boundary,
+                buildingData: zone.buildingData,
+                houseNumberStats,
+                activeAssignments,
+                totalAgents: activeAssignments.length,
+                area,
+                status: zone.status,
+                teamId: zone.teamId,
+                assignedAgentId: zone.assignedAgentId,
+                createdBy: zone.createdBy,
+                createdAt: zone.createdAt,
+                updatedAt: zone.updatedAt
+            }
+        });
+    }
+    catch (error) {
+        console.error('Error getting zone detailed statistics:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get zone detailed statistics',
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+};
+exports.getZoneDetailedStats = getZoneDetailedStats;
+// Get residents for a specific zone
+const getZoneResidents = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, page = 1, limit = 50 } = req.query;
+        // Verify zone exists and user has access
+        const zone = await Zone_1.Zone.findById(id);
+        if (!zone) {
+            return res.status(404).json({
+                success: false,
+                message: 'Zone not found'
+            });
+        }
+        // Check if user has access to this zone
+        if (req.user?.role !== 'SUPERADMIN' && zone.teamId?.toString() !== req.user?.primaryTeamId) {
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied to this zone'
+            });
+        }
+        // Build filter for residents
+        const filter = { zoneId: id };
+        if (status) {
+            filter.status = status;
+        }
+        const skip = (Number(page) - 1) * Number(limit);
+        const residents = await Resident_1.Resident.find(filter)
+            .populate('assignedAgentId', 'name email')
+            .skip(skip)
+            .limit(Number(limit))
+            .sort({ createdAt: -1 });
+        const total = await Resident_1.Resident.countDocuments(filter);
+        // Get status counts
+        const statusCounts = await Resident_1.Resident.aggregate([
+            { $match: { zoneId: zone._id } },
+            { $group: { _id: '$status', count: { $sum: 1 } } }
+        ]);
+        const statusSummary = statusCounts.reduce((acc, item) => {
+            acc[item._id] = item.count;
+            return acc;
+        }, {});
+        res.json({
+            success: true,
+            data: {
+                residents,
+                statusSummary,
+                pagination: {
+                    page: Number(page),
+                    limit: Number(limit),
+                    total,
+                    pages: Math.ceil(total / Number(limit))
+                }
+            }
+        });
+    }
+    catch (error) {
+        console.error('Error getting zone residents:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get zone residents',
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+};
+exports.getZoneResidents = getZoneResidents;
+// Update resident status
+const updateResidentStatus = async (req, res) => {
+    try {
+        const { residentId } = req.params;
+        const { status, notes, phone, email } = req.body;
+        const resident = await Resident_1.Resident.findById(residentId);
+        if (!resident) {
+            return res.status(404).json({
+                success: false,
+                message: 'Resident not found'
+            });
+        }
+        // Verify user has access to the zone
+        const zone = await Zone_1.Zone.findById(resident.zoneId);
+        if (!zone) {
+            return res.status(404).json({
+                success: false,
+                message: 'Zone not found'
+            });
+        }
+        if (req.user?.role !== 'SUPERADMIN' && zone.teamId?.toString() !== req.user?.primaryTeamId) {
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied to update this resident'
+            });
+        }
+        // Update resident
+        const updateData = {};
+        if (status)
+            updateData.status = status;
+        if (notes !== undefined)
+            updateData.notes = notes;
+        if (phone !== undefined)
+            updateData.phone = phone;
+        if (email !== undefined)
+            updateData.email = email;
+        // Update lastVisited if status is being changed to visited
+        if (status === 'visited') {
+            updateData.lastVisited = new Date();
+        }
+        updateData.updatedAt = new Date();
+        const updatedResident = await Resident_1.Resident.findByIdAndUpdate(residentId, updateData, { new: true }).populate('assignedAgentId', 'name email');
+        res.json({
+            success: true,
+            message: 'Resident status updated successfully',
+            data: updatedResident
+        });
+    }
+    catch (error) {
+        console.error('Error updating resident status:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to update resident status',
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+};
+exports.updateResidentStatus = updateResidentStatus;
+// Assign team to zone
+const assignTeamToZone = async (req, res) => {
+    try {
+        const { teamId, zoneId, effectiveDate } = req.body;
+        // Validate team exists
+        const team = await Team_1.Team.findById(teamId);
+        if (!team) {
+            return res.status(404).json({
+                success: false,
+                message: 'Team not found'
+            });
+        }
+        // Validate zone exists
+        const zone = await Zone_1.Zone.findById(zoneId);
+        if (!zone) {
+            return res.status(404).json({
+                success: false,
+                message: 'Zone not found'
+            });
+        }
+        // Check permissions
+        if (req.user?.role !== 'SUPERADMIN' && team.createdBy?.toString() !== req.user?.id) {
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied to assign to this zone'
+            });
+        }
+        // Update zone with team assignment
+        const updatedZone = await Zone_1.Zone.findByIdAndUpdate(zoneId, {
+            teamId,
+            status: zone.status === 'DRAFT' ? 'ACTIVE' : zone.status,
+            assignedAgentId: null // Remove individual agent assignment when team is assigned
+        }, { new: true }).populate('teamId', 'name');
+        // Create team assignment records for all agents in the team
+        if (team.agentIds && team.agentIds.length > 0) {
+            const teamAssignments = team.agentIds.map((agentId) => ({
+                agentId,
+                teamId,
+                effectiveFrom: effectiveDate || new Date(),
+                status: 'ACTIVE',
+                assignedBy: req.user?.id
+            }));
+            await AgentTeamAssignment_1.AgentTeamAssignment.insertMany(teamAssignments);
+        }
+        res.status(200).json({
+            success: true,
+            message: 'Team assigned to zone successfully',
+            data: {
+                zone: updatedZone,
+                team: {
+                    id: team._id,
+                    name: team.name,
+                    agentCount: team.agentIds?.length || 0
+                }
+            }
+        });
+    }
+    catch (error) {
+        console.error('Error assigning team to zone:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to assign team to zone',
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+};
+exports.assignTeamToZone = assignTeamToZone;
+// Remove team from zone
+const removeTeamFromZone = async (req, res) => {
+    try {
+        const { zoneId } = req.params;
+        const zone = await Zone_1.Zone.findById(zoneId).populate('teamId', 'name');
+        if (!zone) {
+            return res.status(404).json({
+                success: false,
+                message: 'Zone not found'
+            });
+        }
+        // Check permissions
+        if (req.user?.role !== 'SUPERADMIN' &&
+            zone.teamId?.createdBy?.toString() !== req.user?.id) {
+            return res.status(403).json({
+                success: false,
+                message: 'Access denied to remove team from this zone'
+            });
+        }
+        // Update zone to remove team assignment
+        const updatedZone = await Zone_1.Zone.findByIdAndUpdate(zoneId, {
+            teamId: null,
+            status: 'DRAFT' // Reset to draft when team is removed
+        }, { new: true });
+        // Deactivate team assignments for this zone's team
+        if (zone.teamId) {
+            await AgentTeamAssignment_1.AgentTeamAssignment.updateMany({ teamId: zone.teamId, status: 'ACTIVE' }, { status: 'INACTIVE', effectiveTo: new Date() });
+        }
+        res.json({
+            success: true,
+            message: 'Team removed from zone successfully',
+            data: updatedZone
+        });
+    }
+    catch (error) {
+        console.error('Error removing team from zone:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to remove team from zone',
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+};
+exports.removeTeamFromZone = removeTeamFromZone;
+// Get overall territory statistics for dashboard
+const getTerritoryOverviewStats = async (req, res) => {
+    try {
+        // Build filter based on user role
+        const filter = {};
+        if (req.user?.role !== 'SUPERADMIN') {
+            filter.teamId = req.user?.primaryTeamId;
+        }
+        // Get total territories
+        const totalTerritories = await Zone_1.Zone.countDocuments(filter);
+        // Get active territories
+        const activeTerritories = await Zone_1.Zone.countDocuments({ ...filter, status: 'ACTIVE' });
+        // Get assigned territories (those with assignedAgentId)
+        const assignedTerritories = await Zone_1.Zone.countDocuments({ ...filter, assignedAgentId: { $exists: true, $ne: null } });
+        // Get unassigned territories
+        const unassignedTerritories = await Zone_1.Zone.countDocuments({ ...filter, assignedAgentId: { $exists: false } });
+        // Get total residents (this would come from a separate residents collection)
+        // For now, we'll use a placeholder calculation
+        const totalResidents = totalTerritories * 25; // Average 25 residents per territory
+        const activeResidents = Math.floor(totalResidents * 0.85); // 85% active rate
+        // Calculate average completion rate (this would come from activity data)
+        const averageCompletionRate = 82; // Placeholder
+        // Calculate total area (simplified)
+        const totalArea = totalTerritories * 250000; // Average 250k sq meters per territory
+        // Get recent activity count (last 24 hours)
+        const recentActivity = Math.floor(Math.random() * 20) + 5; // Placeholder
+        // Get top performing territory
+        const topPerformingTerritory = await Zone_1.Zone.findOne(filter)
+            .sort({ 'performance.completionRate': -1 })
+            .select('name performance.completionRate')
+            .limit(1);
+        const stats = {
+            totalTerritories,
+            activeTerritories,
+            assignedTerritories,
+            unassignedTerritories,
+            totalResidents,
+            activeResidents,
+            averageCompletionRate,
+            totalArea,
+            recentActivity,
+            topPerformingTerritory: topPerformingTerritory ? {
+                name: topPerformingTerritory.name,
+                completionRate: topPerformingTerritory.performance?.completionRate || 85
+            } : undefined
+        };
+        res.json({
+            success: true,
+            data: stats
+        });
+    }
+    catch (error) {
+        console.error('Error getting territory overview stats:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to get territory overview statistics',
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+};
+exports.getTerritoryOverviewStats = getTerritoryOverviewStats;
 //# sourceMappingURL=zone.controller.js.map

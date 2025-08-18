@@ -37,14 +37,43 @@ exports.Zone = void 0;
 const mongoose_1 = __importStar(require("mongoose"));
 const ZoneSchema = new mongoose_1.Schema({
     name: { type: String, required: true, trim: true },
+    description: { type: String, trim: true },
     boundary: {
         type: { type: String, enum: ['Polygon'], required: true },
         coordinates: { type: [[[Number]]], required: true },
     },
+    buildingData: {
+        totalBuildings: { type: Number, default: 0 },
+        residentialHomes: { type: Number, default: 0 },
+        addresses: [{ type: String }],
+        coordinates: [{ type: [Number] }], // [lng, lat]
+        houseNumbers: {
+            odd: [{ type: Number }],
+            even: [{ type: Number }],
+        },
+        houseStatuses: { type: Map, of: {
+                status: {
+                    type: String,
+                    enum: ['not-visited', 'interested', 'visited', 'callback', 'appointment', 'follow-up', 'not-interested'],
+                    default: 'not-visited'
+                },
+                notes: { type: String },
+                phone: { type: String },
+                email: { type: String },
+                lastVisited: { type: Date },
+                updatedBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User' },
+                updatedAt: { type: Date, default: Date.now }
+            } },
+    },
     assignedAgentId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
     teamId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Team', default: null, index: true },
+    status: { type: String, enum: ['DRAFT', 'ACTIVE', 'INACTIVE'], default: 'DRAFT', index: true },
+    createdBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true });
+// Re-enable 2dsphere index now that polygon closure is fixed
 ZoneSchema.index({ boundary: '2dsphere' });
+ZoneSchema.index({ 'buildingData.houseNumbers.odd': 1 });
+ZoneSchema.index({ 'buildingData.houseNumbers.even': 1 });
 exports.Zone = mongoose_1.default.models.Zone || mongoose_1.default.model('Zone', ZoneSchema);
 exports.default = exports.Zone;
 //# sourceMappingURL=Zone.js.map

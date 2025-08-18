@@ -306,6 +306,386 @@ router.post('/create-agent', (0, auth_1.requireRoles)('SUPERADMIN', 'SUBADMIN'),
 router.get('/list-all', (0, auth_1.requireRoles)('SUPERADMIN', 'SUBADMIN'), (0, validator_1.validate)(validators_1.listUsersValidation), user_controller_1.listUsers);
 /**
  * @openapi
+ * /api/users/my-created-agents:
+ *   get:
+ *     summary: Get agents created by current admin (Superadmin/Subadmin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [ACTIVE, INACTIVE]
+ *           example: "ACTIVE"
+ *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *           example: "john"
+ *       - in: query
+ *         name: page
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           example: 1
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 100
+ *           example: 10
+ *     responses:
+ *       200:
+ *         description: List of agents created by current admin
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       _id:
+ *                         type: string
+ *                         example: "507f1f77bcf86cd799439013"
+ *                       name:
+ *                         type: string
+ *                         example: "John Doe"
+ *                       email:
+ *                         type: string
+ *                         example: "john.doe@knockwise.com"
+ *                       username:
+ *                         type: string
+ *                         example: "johndoe"
+ *                       contactNumber:
+ *                         type: string
+ *                         example: "+1234567890"
+ *                       role:
+ *                         type: string
+ *                         example: "AGENT"
+ *                       status:
+ *                         type: string
+ *                         example: "ACTIVE"
+ *                       primaryTeamId:
+ *                         type: object
+ *                         properties:
+ *                           _id:
+ *                             type: string
+ *                             example: "507f1f77bcf86cd799439011"
+ *                           name:
+ *                             type: string
+ *                             example: "Team Alpha"
+ *                       primaryZoneId:
+ *                         type: object
+ *                         properties:
+ *                           _id:
+ *                             type: string
+ *                             example: "507f1f77bcf86cd799439012"
+ *                           name:
+ *                             type: string
+ *                             example: "Downtown District"
+ *                       createdBy:
+ *                         type: object
+ *                         properties:
+ *                           _id:
+ *                             type: string
+ *                             example: "507f1f77bcf86cd799439010"
+ *                           name:
+ *                             type: string
+ *                             example: "Admin User"
+ *                           email:
+ *                             type: string
+ *                             example: "admin@knockwise.com"
+ *                       createdAt:
+ *                         type: string
+ *                         format: date-time
+ *                         example: "2024-01-15T10:30:00.000Z"
+ *                 pagination:
+ *                   type: object
+ *                   properties:
+ *                     page:
+ *                       type: integer
+ *                       example: 1
+ *                     limit:
+ *                       type: integer
+ *                       example: 10
+ *                     total:
+ *                       type: integer
+ *                       example: 25
+ *                     pages:
+ *                       type: integer
+ *                       example: 3
+ */
+router.get('/my-created-agents', (0, auth_1.requireRoles)('SUPERADMIN', 'SUBADMIN'), user_controller_1.getMyCreatedAgents);
+/**
+ * @openapi
+ * /api/users/team-overview:
+ *   get:
+ *     summary: Get team overview for current admin (Superadmin/Subadmin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Team overview data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     totalAgents:
+ *                       type: integer
+ *                       example: 25
+ *                     activeAgents:
+ *                       type: integer
+ *                       example: 20
+ *                     inactiveAgents:
+ *                       type: integer
+ *                       example: 5
+ *                     agentsThisMonth:
+ *                       type: integer
+ *                       example: 8
+ */
+router.get('/team-overview', (0, auth_1.requireRoles)('SUPERADMIN', 'SUBADMIN'), user_controller_1.getTeamOverview);
+/**
+ * @openapi
+ * /api/users/recent-additions:
+ *   get:
+ *     summary: Get recent agent additions for current admin (Superadmin/Subadmin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: limit
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 20
+ *           default: 5
+ *         example: 5
+ *     responses:
+ *       200:
+ *         description: Recent agent additions
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       _id:
+ *                         type: string
+ *                         example: "507f1f77bcf86cd799439013"
+ *                       name:
+ *                         type: string
+ *                         example: "John Doe"
+ *                       email:
+ *                         type: string
+ *                         example: "john.doe@knockwise.com"
+ *                       status:
+ *                         type: string
+ *                         example: "ACTIVE"
+ *                       primaryZoneId:
+ *                         type: object
+ *                         properties:
+ *                           _id:
+ *                             type: string
+ *                             example: "507f1f77bcf86cd799439012"
+ *                           name:
+ *                             type: string
+ *                             example: "Downtown District"
+ *                       createdAt:
+ *                         type: string
+ *                         format: date-time
+ *                         example: "2024-01-15T10:30:00.000Z"
+ */
+router.get('/recent-additions', (0, auth_1.requireRoles)('SUPERADMIN', 'SUBADMIN'), user_controller_1.getRecentAdditions);
+/**
+ * @openapi
+ * /api/users/update-agent-zone/{agentId}:
+ *   put:
+ *     summary: Update agent zone assignment and automatically update status (Superadmin/Subadmin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: agentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: "507f1f77bcf86cd799439013"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               primaryZoneId:
+ *                 type: string
+ *                 example: "507f1f77bcf86cd799439012"
+ *               zoneIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["507f1f77bcf86cd799439012", "507f1f77bcf86cd799439013"]
+ *     responses:
+ *       200:
+ *         description: Agent zone assignment updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Agent zone assignment updated successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     _id:
+ *                       type: string
+ *                       example: "507f1f77bcf86cd799439013"
+ *                     name:
+ *                       type: string
+ *                       example: "John Doe"
+ *                     status:
+ *                       type: string
+ *                       example: "ACTIVE"
+ *                     primaryZoneId:
+ *                       type: string
+ *                       example: "507f1f77bcf86cd799439012"
+ *                     zoneIds:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *       404:
+ *         description: Agent not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Agent not found"
+ */
+router.put('/update-agent-zone/:agentId', (0, auth_1.requireRoles)('SUPERADMIN', 'SUBADMIN'), user_controller_1.updateAgentZoneAssignment);
+/**
+ * @openapi
+ * /api/users/bulk-update-agent-statuses:
+ *   post:
+ *     summary: Bulk update agent statuses (Superadmin/Subadmin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [agentIds, status]
+ *             properties:
+ *               agentIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *                 example: ["507f1f77bcf86cd799439013", "507f1f77bcf86cd799439014"]
+ *               status:
+ *                 type: string
+ *                 enum: [ACTIVE, INACTIVE]
+ *                 example: "ACTIVE"
+ *     responses:
+ *       200:
+ *         description: Agent statuses updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Agent statuses updated successfully"
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       _id:
+ *                         type: string
+ *                         example: "507f1f77bcf86cd799439013"
+ *                       name:
+ *                         type: string
+ *                         example: "John Doe"
+ *                       status:
+ *                         type: string
+ *                         example: "ACTIVE"
+ *                       updatedAt:
+ *                         type: string
+ *                         format: date-time
+ *                         example: "2024-01-15T10:30:00.000Z"
+ *       400:
+ *         description: Invalid request body
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Invalid request body"
+ *       404:
+ *         description: Agents not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Agents not found"
+ */
+router.post('/bulk-update-agent-statuses', (0, auth_1.requireRoles)('SUPERADMIN', 'SUBADMIN'), user_controller_1.bulkUpdateAgentStatuses);
+/**
+ * @openapi
  * /api/users/get-by-id/{id}:
  *   get:
  *     summary: Get user by ID (Superadmin/Subadmin only)
@@ -487,7 +867,7 @@ router.get('/get-by-id/:id', auth_1.requireAuth, (0, auth_1.requireRoles)('SUPER
  *                   type: string
  *                   example: "User not found"
  */
-router.put('/update/:id', (0, auth_1.requireRoles)('SUPERADMIN'), (0, validator_1.validate)(validators_1.updateUserValidation), user_controller_1.updateUser);
+router.put('/update/:id', auth_1.requireAuth, (0, auth_1.requireRoles)('SUPERADMIN', 'SUBADMIN'), (0, validator_1.validate)(validators_1.updateUserValidation), user_controller_1.updateUser);
 /**
  * @openapi
  * /api/users/delete/{id}:
@@ -544,7 +924,7 @@ router.put('/update/:id', (0, auth_1.requireRoles)('SUPERADMIN'), (0, validator_
  *                   type: string
  *                   example: "User not found"
  */
-router.delete('/delete/:id', auth_1.requireAuth, (0, auth_1.requireRoles)('SUPERADMIN'), (0, validator_1.validate)(validators_1.deleteUserValidation), user_controller_1.deleteUser);
+router.delete('/delete/:id', auth_1.requireAuth, (0, auth_1.requireRoles)('SUPERADMIN', 'SUBADMIN'), (0, validator_1.validate)(validators_1.deleteUserValidation), user_controller_1.deleteUser);
 // Subadmin/Leader endpoints
 /**
  * @openapi
@@ -840,6 +1220,105 @@ router.put('/update-my-profile', auth_1.requireAuth, (0, validator_1.validate)(v
  *                   example: "No zone assigned"
  */
 router.get('/my-zone-info', (0, auth_1.requireRoles)('AGENT'), user_controller_1.getMyZoneInfo);
+/**
+ * @openapi
+ * /api/users/get-detailed-agent/{agentId}:
+ *   get:
+ *     summary: Get detailed agent information (Superadmin/Subadmin only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: agentId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: "507f1f77bcf86cd799439013"
+ *     responses:
+ *       200:
+ *         description: Detailed agent information
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     _id:
+ *                       type: string
+ *                       example: "507f1f77bcf86cd799439013"
+ *                     name:
+ *                       type: string
+ *                       example: "John Doe"
+ *                     email:
+ *                       type: string
+ *                       example: "john.doe@knockwise.com"
+ *                     username:
+ *                       type: string
+ *                       example: "johndoe"
+ *                     contactNumber:
+ *                       type: string
+ *                       example: "+1234567890"
+ *                     role:
+ *                       type: string
+ *                       example: "AGENT"
+ *                     status:
+ *                       type: string
+ *                       example: "ACTIVE"
+ *                     primaryTeamId:
+ *                       type: object
+ *                       properties:
+ *                         _id:
+ *                           type: string
+ *                           example: "507f1f77bcf86cd799439011"
+ *                         name:
+ *                           type: string
+ *                           example: "Team Alpha"
+ *                     primaryZoneId:
+ *                       type: object
+ *                       properties:
+ *                         _id:
+ *                           type: string
+ *                           example: "507f1f77bcf86cd799439012"
+ *                         name:
+ *                           type: string
+ *                           example: "Downtown District"
+ *                     createdBy:
+ *                       type: object
+ *                       properties:
+ *                         _id:
+ *                           type: string
+ *                           example: "507f1f77bcf86cd799439010"
+ *                         name:
+ *                           type: string
+ *                           example: "Admin User"
+ *                         email:
+ *                           type: string
+ *                           example: "admin@knockwise.com"
+ *                     createdAt:
+ *                       type: string
+ *                       format: date-time
+ *                       example: "2024-01-15T10:30:00.000Z"
+ *       404:
+ *         description: Agent not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Agent not found"
+ */
+router.get('/get-detailed-agent/:agentId', auth_1.requireAuth, (0, auth_1.requireRoles)('SUPERADMIN', 'SUBADMIN'), user_controller_1.getDetailedAgent);
 // Analytics endpoints
 /**
  * @openapi

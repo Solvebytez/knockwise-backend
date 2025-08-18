@@ -8,10 +8,16 @@ function validate(rules) {
             // eslint-disable-next-line no-await-in-loop
             await rule.run(req);
         }
+        console.log('req.body', req.body);
         const result = (0, express_validator_1.validationResult)(req);
         if (result.isEmpty())
             return next();
-        res.status(422).json({ errors: result.array() });
+        console.log('Validation errors:', result.array());
+        res.status(422).json({
+            success: false,
+            message: 'Validation failed',
+            errors: result.array()
+        });
     };
 }
 //# sourceMappingURL=validator.js.map

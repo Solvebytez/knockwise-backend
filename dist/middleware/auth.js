@@ -19,13 +19,14 @@ const requireAuth = async (req, res, next) => {
         if (!token && req.cookies?.accessToken) {
             token = req.cookies.accessToken;
         }
+        console.log('token', token, env_1.env.jwtAccessSecret);
         if (!token) {
             return res.status(401).json({
                 success: false,
                 message: 'Access token required (Bearer token or cookie)'
             });
         }
-        const decoded = jsonwebtoken_1.default.verify(token, env_1.env.jwtSecret);
+        const decoded = jsonwebtoken_1.default.verify(token, env_1.env.jwtAccessSecret);
         // Get user from database to ensure they still exist and are active
         const user = await User_1.User.findById(decoded.sub).select('-password');
         if (!user || user.status !== 'ACTIVE') {
@@ -38,8 +39,10 @@ const requireAuth = async (req, res, next) => {
             sub: user._id.toString(),
             email: user.email,
             role: user.role,
-            teamId: user.teamId ? user.teamId.toString() : undefined,
-            zoneId: user.zoneId ? user.zoneId.toString() : undefined,
+            primaryTeamId: user.primaryTeamId ? user.primaryTeamId.toString() : undefined,
+            primaryZoneId: user.primaryZoneId ? user.primaryZoneId.toString() : undefined,
+            teamIds: user.teamIds && user.teamIds.length > 0 ? user.teamIds.map((id) => id.toString()) : undefined,
+            zoneIds: user.zoneIds && user.zoneIds.length > 0 ? user.zoneIds.map((id) => id.toString()) : undefined,
             id: user._id.toString()
         };
         next();
