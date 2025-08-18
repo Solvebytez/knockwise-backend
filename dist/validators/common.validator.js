@@ -71,7 +71,7 @@ exports.teamActivityListQueries = [
 exports.zoneListQueries = [
     ...exports.paginationQueries,
     (0, express_validator_1.query)('teamId').optional().isMongoId(),
-    (0, express_validator_1.query)('status').optional().isIn(['ACTIVE', 'INACTIVE']),
+    (0, express_validator_1.query)('status').optional().isIn(['ACTIVE', 'INACTIVE', 'DRAFT', 'SCHEDULED']),
 ];
 exports.nearbyPropertiesQueries = [
     ...exports.locationQueries,

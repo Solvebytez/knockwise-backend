@@ -9,6 +9,48 @@ import { SocketService } from './socketService';
 export class ScheduledAssignmentService {
   
   /**
+   * Sync agent's zoneIds with all current assignments
+   */
+  static async syncAgentZoneIds(agentId: string) {
+    try {
+      // Get all active assignments for this agent (individual and team-based)
+      const individualAssignments = await AgentZoneAssignment.find({
+        agentId: agentId,
+        status: { $nin: ['COMPLETED', 'CANCELLED'] },
+        effectiveTo: null
+      }).populate('zoneId', '_id');
+
+      const agent = await User.findById(agentId);
+      if (!agent) return;
+
+      // Get team-based assignments for this agent's teams
+      const teamAssignments = await AgentZoneAssignment.find({
+        teamId: { $in: agent.teamIds },
+        status: { $nin: ['COMPLETED', 'CANCELLED'] },
+        effectiveTo: null
+      }).populate('zoneId', '_id');
+
+      // Combine all zone IDs from both individual and team assignments
+      const allZoneIds = [
+        ...individualAssignments.map(a => a.zoneId._id.toString()),
+        ...teamAssignments.map(a => a.zoneId._id.toString())
+      ];
+
+      // Remove duplicates
+      const uniqueZoneIds = [...new Set(allZoneIds)];
+
+      // Update the agent's zoneIds to match all current assignments
+      await User.findByIdAndUpdate(agentId, {
+        zoneIds: uniqueZoneIds
+      });
+
+      console.log(`Synced zoneIds for agent ${agent.name}: ${uniqueZoneIds.length} zones`);
+    } catch (error) {
+      console.error('Error syncing agent zoneIds:', error);
+    }
+  }
+  
+  /**
    * Create a scheduled assignment
    */
   static async createScheduledAssignment(data: {
@@ -63,18 +105,61 @@ export class ScheduledAssignmentService {
 
           await actualAssignment.save();
 
+          // Update agent zone fields
+          if (assignment.agentId) {
+            // Individual agent assignment
+            const agent = await User.findById(assignment.agentId);
+            if (agent) {
+              const updateData: any = {};
+              
+              // Always set latest activated assignment as primary
+              updateData.primaryZoneId = assignment.zoneId;
+              
+              // Add to zoneIds array if not already present
+              const currentZoneIds = agent.zoneIds || [];
+              if (!currentZoneIds.includes(assignment.zoneId)) {
+                updateData.zoneIds = [...currentZoneIds, assignment.zoneId];
+              }
+              
+              // Update agent if there are changes
+              if (Object.keys(updateData).length > 0) {
+                await User.findByIdAndUpdate(assignment.agentId, updateData);
+              }
+            }
+          } else if (assignment.teamId) {
+            // Team assignment - update all team members
+            const team = await Team.findById(assignment.teamId);
+            if (team && team.agentIds) {
+              for (const agentId of team.agentIds) {
+                const agent = await User.findById(agentId);
+                if (agent) {
+                  const updateData: any = {};
+                  
+                  // Always set latest activated team assignment as primary
+                  updateData.primaryZoneId = assignment.zoneId;
+                  
+                  // Update agent with new primary zone
+                  await User.findByIdAndUpdate(agentId, updateData);
+                  
+                  // Sync zoneIds with all current assignments
+                  await this.syncAgentZoneIds(agentId.toString());
+                }
+              }
+            }
+          }
+
           // Update scheduled assignment status
           assignment.status = 'ACTIVATED';
           assignment.notificationSent = true;
           await assignment.save();
 
           // Send notifications
-          await this.sendAssignmentNotifications(assignment);
+          // await this.sendAssignmentNotifications(assignment);
           
           // Send socket notifications
-          await this.sendAssignmentSocketNotifications(assignment);
+          // await this.sendAssignmentSocketNotifications(assignment);
 
-          console.log(`Activated assignment for zone: ${assignment.zoneId.name}`);
+          console.log(`Activated assignment for zone: ${assignment.zoneId}`);
         } catch (error) {
           console.error(`Error activating assignment ${assignment._id}:`, error);
         }
@@ -119,7 +204,7 @@ export class ScheduledAssignmentService {
             teamName: team.name
           });
           
-          for (const agent of team.agentIds) {
+          for (const agent of team.agentIds as any[]) {
             await EmailService.sendEmail(agent.email, template);
           }
         }
@@ -164,7 +249,7 @@ export class ScheduledAssignmentService {
             teamName: team.name
           });
           
-          for (const agent of team.agentIds) {
+          for (const agent of team.agentIds as any[]) {
             await EmailService.sendEmail(agent.email, template);
           }
         }

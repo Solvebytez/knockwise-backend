@@ -76,7 +76,7 @@ router.use(auth_1.requireAuth);
  *                       type: boolean
  *                       example: true
  */
-router.post('/check-overlap', (0, auth_1.requireRoles)(['SUPERADMIN', 'SUBADMIN']), zone_controller_1.checkZoneOverlapBeforeCreate);
+router.post('/check-overlap', (0, auth_1.requireRoles)('SUPERADMIN', 'SUBADMIN'), zone_controller_1.checkZoneOverlapBeforeCreate);
 // Zone CRUD operations
 /**
  * @openapi

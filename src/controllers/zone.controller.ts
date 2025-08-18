@@ -138,9 +138,11 @@ export const createZone = async (req: AuthRequest, res: Response) => {
 // Get all zones with pagination and filtering
 export const listZones = async (req: AuthRequest, res: Response) => {
   try {
-    const { page = 1, limit = 10, teamId, status } = req.query;
-    const skip = (Number(page) - 1) * Number(limit);
-
+    const { page, limit, teamId, status } = req.query;
+    
+    // Check if this is a request for all zones (no pagination parameters)
+    const isListAll = !page && !limit;
+    
     const filter: any = {};
     if (teamId) filter.teamId = teamId;
     if (status) filter.status = status;
@@ -150,25 +152,48 @@ export const listZones = async (req: AuthRequest, res: Response) => {
       filter.teamId = req.user?.primaryTeamId;
     }
 
-    const zones = await Zone.find(filter)
-      .populate('teamId', 'name')
-      .populate('createdBy', 'name email')
-      .skip(skip)
-      .limit(Number(limit))
-      .sort({ createdAt: -1 });
+    let zones;
+    if (isListAll) {
+      // Return all zones without pagination
+      zones = await Zone.find(filter)
+        .populate('teamId', 'name')
+        .populate('createdBy', 'name email')
+        .sort({ createdAt: -1 });
+    } else {
+      // Use pagination
+      const pageNum = Number(page) || 1;
+      const limitNum = Number(limit) || 10;
+      const skip = (pageNum - 1) * limitNum;
+      
+      zones = await Zone.find(filter)
+        .populate('teamId', 'name')
+        .populate('createdBy', 'name email')
+        .skip(skip)
+        .limit(limitNum)
+        .sort({ createdAt: -1 });
+    }
 
-    // Get current active assignments for each zone
+    // Import ScheduledAssignment model
+    const { ScheduledAssignment } = require('../models/ScheduledAssignment');
+
+    // Get current active and scheduled assignments for each zone
     const zonesWithAssignments = await Promise.all(
       zones.map(async (zone) => {
+        // Get active assignments
         const activeAssignment = await AgentZoneAssignment.findOne({
           zoneId: zone._id,
-          status: 'ACTIVE',
-          $or: [
-            { effectiveTo: { $exists: false } },
-            { effectiveTo: null },
-            { effectiveTo: { $gt: new Date() } }
-          ]
+          status: { $nin: ['COMPLETED', 'CANCELLED'] },
+          effectiveTo: null
         }).populate('agentId', 'name email').populate('teamId', 'name');
+
+        // Get scheduled assignments
+        const scheduledAssignment = await ScheduledAssignment.findOne({
+          zoneId: zone._id,
+          status: 'PENDING'
+        }).populate('agentId', 'name email').populate('teamId', 'name');
+
+        // Use active assignment if available, otherwise use scheduled assignment
+        const currentAssignment = activeAssignment || scheduledAssignment;
 
         // Get zone statistics
         const totalResidents = await Resident.countDocuments({ zoneId: zone._id });
@@ -192,16 +217,32 @@ export const listZones = async (req: AuthRequest, res: Response) => {
         const zoneData = zone.toObject();
         const lastActivityDate = lastActivity ? (lastActivity as any).createdAt : new Date();
 
+        // Calculate zone status based on assignments
+        let calculatedStatus = 'DRAFT'; // Default to DRAFT
+        
+        if (currentAssignment) {
+          // Check if it's a scheduled assignment (future date)
+          const assignmentDate = new Date(currentAssignment.effectiveFrom);
+          const now = new Date();
+          
+          if (assignmentDate > now) {
+            calculatedStatus = 'SCHEDULED';
+          } else {
+            calculatedStatus = 'ACTIVE';
+          }
+        }
+
         return {
           ...zoneData,
-          assignedAgentId: activeAssignment?.agentId || null,
-          currentAssignment: activeAssignment ? {
-            _id: activeAssignment._id,
-            agentId: activeAssignment.agentId,
-            teamId: activeAssignment.teamId,
-            effectiveFrom: activeAssignment.effectiveFrom,
-            effectiveTo: activeAssignment.effectiveTo,
-            status: activeAssignment.status
+          status: calculatedStatus, // Use calculated status
+          assignedAgentId: currentAssignment?.agentId || null,
+          currentAssignment: currentAssignment ? {
+            _id: currentAssignment._id,
+            agentId: currentAssignment.agentId,
+            teamId: currentAssignment.teamId,
+            effectiveFrom: currentAssignment.effectiveFrom,
+            effectiveTo: currentAssignment.effectiveTo,
+            status: currentAssignment.status
           } : null,
           totalResidents,
           activeResidents,
@@ -214,16 +255,28 @@ export const listZones = async (req: AuthRequest, res: Response) => {
 
     const total = await Zone.countDocuments(filter);
 
-    res.json({
-      success: true,
-      data: zonesWithAssignments,
-      pagination: {
-        page: Number(page),
-        limit: Number(limit),
-        total,
-        pages: Math.ceil(total / Number(limit))
-      }
-    });
+    if (isListAll) {
+      // Return all zones without pagination
+      res.json({
+        success: true,
+        data: zonesWithAssignments
+      });
+    } else {
+      // Return paginated response
+      const pageNum = Number(page) || 1;
+      const limitNum = Number(limit) || 10;
+      
+      res.json({
+        success: true,
+        data: zonesWithAssignments,
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          pages: Math.ceil(total / limitNum)
+        }
+      });
+    }
   } catch (error) {
     console.error('Error listing zones:', error);
     res.status(500).json({
@@ -1062,6 +1115,9 @@ export const removeTeamFromZone = async (req: AuthRequest, res: Response) => {
 // Get overall territory statistics for dashboard
 export const getTerritoryOverviewStats = async (req: AuthRequest, res: Response) => {
   try {
+    // Import ScheduledAssignment model
+    const { ScheduledAssignment } = require('../models/ScheduledAssignment');
+
     // Build filter based on user role
     const filter: any = {};
     if (req.user?.role !== 'SUPERADMIN') {
@@ -1071,14 +1127,56 @@ export const getTerritoryOverviewStats = async (req: AuthRequest, res: Response)
     // Get total territories
     const totalTerritories = await Zone.countDocuments(filter);
 
-    // Get active territories
-    const activeTerritories = await Zone.countDocuments({ ...filter, status: 'ACTIVE' });
+    // Get all zones for this admin
+    const zones = await Zone.find(filter).select('_id');
 
-    // Get assigned territories (those with assignedAgentId)
-    const assignedTerritories = await Zone.countDocuments({ ...filter, assignedAgentId: { $exists: true, $ne: null } });
+    // Get active assignments (including scheduled)
+    const activeAssignments = await AgentZoneAssignment.find({
+      zoneId: { $in: zones.map(z => z._id) },
+      status: { $nin: ['COMPLETED', 'CANCELLED'] },
+      effectiveTo: null
+    });
 
-    // Get unassigned territories
-    const unassignedTerritories = await Zone.countDocuments({ ...filter, assignedAgentId: { $exists: false } });
+    const scheduledAssignments = await ScheduledAssignment.find({
+      zoneId: { $in: zones.map(z => z._id) },
+      status: 'PENDING'
+    });
+
+    // Calculate territories by status
+    let activeTerritories = 0;
+    let scheduledTerritories = 0;
+    let draftTerritories = 0;
+    let assignedTerritories = 0;
+
+    // Process active assignments
+    for (const assignment of activeAssignments) {
+      const assignmentDate = new Date(assignment.effectiveFrom);
+      const now = new Date();
+      
+      if (assignmentDate > now) {
+        scheduledTerritories++;
+      } else {
+        activeTerritories++;
+      }
+      
+      if (assignment.agentId || assignment.teamId) {
+        assignedTerritories++;
+      }
+    }
+
+    // Process scheduled assignments
+    for (const assignment of scheduledAssignments) {
+      scheduledTerritories++;
+      if (assignment.agentId || assignment.teamId) {
+        assignedTerritories++;
+      }
+    }
+
+    // Calculate draft territories (total - active - scheduled)
+    draftTerritories = totalTerritories - activeTerritories - scheduledTerritories;
+    
+    // Calculate unassigned territories
+    const unassignedTerritories = totalTerritories - assignedTerritories;
 
     // Get total residents (this would come from a separate residents collection)
     // For now, we'll use a placeholder calculation
@@ -1103,6 +1201,8 @@ export const getTerritoryOverviewStats = async (req: AuthRequest, res: Response)
     const stats = {
       totalTerritories,
       activeTerritories,
+      scheduledTerritories,
+      draftTerritories,
       assignedTerritories,
       unassignedTerritories,
       totalResidents,

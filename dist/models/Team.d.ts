@@ -2,6 +2,7 @@ import mongoose, { Document, Model } from 'mongoose';
 export interface ITeam extends Document {
     name: string;
     description?: string;
+    status: 'ACTIVE' | 'INACTIVE';
     createdBy: mongoose.Types.ObjectId;
     leaderId: mongoose.Types.ObjectId;
     agentIds: mongoose.Types.ObjectId[];

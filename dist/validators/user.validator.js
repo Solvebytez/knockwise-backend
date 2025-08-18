@@ -190,6 +190,11 @@ exports.listUsersValidation = [
         .optional()
         .isMongoId()
         .withMessage('Team ID must be a valid MongoDB ObjectId'),
+    (0, express_validator_1.query)('search')
+        .optional()
+        .isString()
+        .isLength({ min: 1, max: 100 })
+        .withMessage('Search query must be between 1 and 100 characters'),
 ];
 exports.getUserByIdValidation = [
     (0, express_validator_1.param)('id')

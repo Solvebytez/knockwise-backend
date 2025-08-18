@@ -126,8 +126,9 @@ exports.createZone = createZone;
 // Get all zones with pagination and filtering
 const listZones = async (req, res) => {
     try {
-        const { page = 1, limit = 10, teamId, status } = req.query;
-        const skip = (Number(page) - 1) * Number(limit);
+        const { page, limit, teamId, status } = req.query;
+        // Check if this is a request for all zones (no pagination parameters)
+        const isListAll = !page && !limit;
         const filter = {};
         if (teamId)
             filter.teamId = teamId;
@@ -137,23 +138,115 @@ const listZones = async (req, res) => {
         if (req.user?.role !== 'SUPERADMIN') {
             filter.teamId = req.user?.primaryTeamId;
         }
-        const zones = await Zone_1.Zone.find(filter)
-            .populate('teamId', 'name')
-            .populate('createdBy', 'name email')
-            .skip(skip)
-            .limit(Number(limit))
-            .sort({ createdAt: -1 });
-        const total = await Zone_1.Zone.countDocuments(filter);
-        res.json({
-            success: true,
-            data: zones,
-            pagination: {
-                page: Number(page),
-                limit: Number(limit),
-                total,
-                pages: Math.ceil(total / Number(limit))
+        let zones;
+        if (isListAll) {
+            // Return all zones without pagination
+            zones = await Zone_1.Zone.find(filter)
+                .populate('teamId', 'name')
+                .populate('createdBy', 'name email')
+                .sort({ createdAt: -1 });
+        }
+        else {
+            // Use pagination
+            const pageNum = Number(page) || 1;
+            const limitNum = Number(limit) || 10;
+            const skip = (pageNum - 1) * limitNum;
+            zones = await Zone_1.Zone.find(filter)
+                .populate('teamId', 'name')
+                .populate('createdBy', 'name email')
+                .skip(skip)
+                .limit(limitNum)
+                .sort({ createdAt: -1 });
+        }
+        // Import ScheduledAssignment model
+        const { ScheduledAssignment } = require('../models/ScheduledAssignment');
+        // Get current active and scheduled assignments for each zone
+        const zonesWithAssignments = await Promise.all(zones.map(async (zone) => {
+            // Get active assignments
+            const activeAssignment = await AgentZoneAssignment_1.AgentZoneAssignment.findOne({
+                zoneId: zone._id,
+                status: { $nin: ['COMPLETED', 'CANCELLED'] },
+                effectiveTo: null
+            }).populate('agentId', 'name email').populate('teamId', 'name');
+            // Get scheduled assignments
+            const scheduledAssignment = await ScheduledAssignment.findOne({
+                zoneId: zone._id,
+                status: 'PENDING'
+            }).populate('agentId', 'name email').populate('teamId', 'name');
+            // Use active assignment if available, otherwise use scheduled assignment
+            const currentAssignment = activeAssignment || scheduledAssignment;
+            // Get zone statistics
+            const totalResidents = await Resident_1.Resident.countDocuments({ zoneId: zone._id });
+            const activeResidents = await Resident_1.Resident.countDocuments({
+                zoneId: zone._id,
+                status: { $in: ['interested', 'visited', 'callback', 'appointment', 'follow-up'] }
+            });
+            // Calculate completion rate
+            const completionRate = totalResidents > 0 ? Math.round((activeResidents / totalResidents) * 100) : 0;
+            // Get average knocks (activities)
+            const activities = await Activity_1.Activity.find({ zoneId: zone._id });
+            const averageKnocks = activities.length > 0 ? Math.round(activities.length / totalResidents) : 0;
+            // Get last activity
+            const lastActivity = await Activity_1.Activity.findOne({ zoneId: zone._id })
+                .sort({ createdAt: -1 })
+                .select('createdAt');
+            const zoneData = zone.toObject();
+            const lastActivityDate = lastActivity ? lastActivity.createdAt : new Date();
+            // Calculate zone status based on assignments
+            let calculatedStatus = 'DRAFT'; // Default to DRAFT
+            if (currentAssignment) {
+                // Check if it's a scheduled assignment (future date)
+                const assignmentDate = new Date(currentAssignment.effectiveFrom);
+                const now = new Date();
+                if (assignmentDate > now) {
+                    calculatedStatus = 'SCHEDULED';
+                }
+                else {
+                    calculatedStatus = 'ACTIVE';
+                }
             }
-        });
+            return {
+                ...zoneData,
+                status: calculatedStatus, // Use calculated status
+                assignedAgentId: currentAssignment?.agentId || null,
+                currentAssignment: currentAssignment ? {
+                    _id: currentAssignment._id,
+                    agentId: currentAssignment.agentId,
+                    teamId: currentAssignment.teamId,
+                    effectiveFrom: currentAssignment.effectiveFrom,
+                    effectiveTo: currentAssignment.effectiveTo,
+                    status: currentAssignment.status
+                } : null,
+                totalResidents,
+                activeResidents,
+                completionRate,
+                averageKnocks,
+                lastActivity: lastActivityDate
+            };
+        }));
+        const total = await Zone_1.Zone.countDocuments(filter);
+        if (isListAll) {
+            // Return all zones without pagination
+            res.json({
+                success: true,
+                data: zonesWithAssignments
+            });
+        }
+        else {
+            // Return paginated response
+            const pageNum = Number(page) || 1;
+            const limitNum = Number(limit) || 10;
+            res.json({
+                success: true,
+                data: zonesWithAssignments,
+                pagination: {
+                    page: pageNum,
+                    limit: limitNum,
+                    total,
+                    pages: Math.ceil(total / limitNum)
+                }
+            });
+        }
     }
     catch (error) {
         console.error('Error listing zones:', error);
@@ -304,35 +397,35 @@ const deleteZone = async (req, res) => {
                 message: 'Access denied to delete this zone'
             });
         }
-        // Check if zone has active assignments
+        // Get active assignments for this zone (we'll deactivate them during deletion)
         const activeAssignments = await AgentZoneAssignment_1.AgentZoneAssignment.find({
             zoneId: id,
             status: 'ACTIVE'
         });
-        if (activeAssignments.length > 0) {
-            return res.status(400).json({
-                success: false,
-                message: 'Cannot delete zone with active agent assignments. Please deactivate all assignments first.'
-            });
-        }
         // Start a database transaction to ensure all deletions are atomic
         const session = await mongoose_1.default.startSession();
         session.startTransaction();
         try {
             // Delete all associated data in the correct order to avoid foreign key constraint issues
-            // 1. Delete all agent zone assignments (both active and inactive)
-            await AgentZoneAssignment_1.AgentZoneAssignment.deleteMany({ zoneId: id }, { session });
+            // 1. Deactivate all agent zone assignments for this zone
+            await AgentZoneAssignment_1.AgentZoneAssignment.updateMany({ zoneId: id }, {
+                status: 'INACTIVE',
+                endDate: new Date()
+            }, { session });
             // 2. Delete all scheduled assignments
             await ScheduledAssignment_1.ScheduledAssignment.deleteMany({ zoneId: id }, { session });
-            // 3. Update properties to remove zone reference
-            await Property_1.Property.updateMany({ zoneId: id }, { $unset: { zoneId: 1 } }, { session });
-            // 4. Update leads to remove zone reference
-            await Lead_1.Lead.updateMany({ zoneId: id }, { $unset: { zoneId: 1 } }, { session });
-            // 5. Update activities to remove zone reference
-            await Activity_1.Activity.updateMany({ zoneId: id }, { $unset: { zoneId: 1 } }, { session });
-            // 6. Update routes to remove zone reference
-            await Route_1.Route.updateMany({ zoneId: id }, { $unset: { zoneId: 1 } }, { session });
-            // 7. Update users to remove zone references
+            // 3. Delete all properties in this zone
+            await Property_1.Property.deleteMany({ zoneId: id }, { session });
+            // 4. Delete all leads in this zone
+            await Lead_1.Lead.deleteMany({ zoneId: id }, { session });
+            // 5. Delete all activities in this zone
+            await Activity_1.Activity.deleteMany({ zoneId: id }, { session });
+            // 6. Delete all routes in this zone
+            await Route_1.Route.deleteMany({ zoneId: id }, { session });
+            // 7. Delete all residents in this zone
+            await Resident_1.Resident.deleteMany({ zoneId: id }, { session });
+            // 8. Update users to remove zone references
+            // Remove primaryZoneId if it matches this zone
             await User_1.User.updateMany({ primaryZoneId: id }, { $unset: { primaryZoneId: 1 } }, { session });
             // Remove from zoneIds array in users
             await User_1.User.updateMany({ zoneIds: id }, { $pull: { zoneIds: id } }, { session });
@@ -340,9 +433,14 @@ const deleteZone = async (req, res) => {
             await Zone_1.Zone.findByIdAndDelete(id, { session });
             // Commit the transaction
             await session.commitTransaction();
+            // Prepare response message based on whether there were active assignments
+            let message = 'Zone and all associated residential data deleted successfully';
+            if (activeAssignments.length > 0) {
+                message = `Zone and all residential data deleted successfully. ${activeAssignments.length} active assignment(s) were automatically deactivated.`;
+            }
             res.json({
                 success: true,
-                message: 'Zone and all associated data deleted successfully'
+                message
             });
         }
         catch (error) {
@@ -884,6 +982,8 @@ exports.removeTeamFromZone = removeTeamFromZone;
 // Get overall territory statistics for dashboard
 const getTerritoryOverviewStats = async (req, res) => {
     try {
+        // Import ScheduledAssignment model
+        const { ScheduledAssignment } = require('../models/ScheduledAssignment');
         // Build filter based on user role
         const filter = {};
         if (req.user?.role !== 'SUPERADMIN') {
@@ -891,12 +991,48 @@ const getTerritoryOverviewStats = async (req, res) => {
         }
         // Get total territories
         const totalTerritories = await Zone_1.Zone.countDocuments(filter);
-        // Get active territories
-        const activeTerritories = await Zone_1.Zone.countDocuments({ ...filter, status: 'ACTIVE' });
-        // Get assigned territories (those with assignedAgentId)
-        const assignedTerritories = await Zone_1.Zone.countDocuments({ ...filter, assignedAgentId: { $exists: true, $ne: null } });
-        // Get unassigned territories
-        const unassignedTerritories = await Zone_1.Zone.countDocuments({ ...filter, assignedAgentId: { $exists: false } });
+        // Get all zones for this admin
+        const zones = await Zone_1.Zone.find(filter).select('_id');
+        // Get active assignments (including scheduled)
+        const activeAssignments = await AgentZoneAssignment_1.AgentZoneAssignment.find({
+            zoneId: { $in: zones.map(z => z._id) },
+            status: { $nin: ['COMPLETED', 'CANCELLED'] },
+            effectiveTo: null
+        });
+        const scheduledAssignments = await ScheduledAssignment.find({
+            zoneId: { $in: zones.map(z => z._id) },
+            status: 'PENDING'
+        });
+        // Calculate territories by status
+        let activeTerritories = 0;
+        let scheduledTerritories = 0;
+        let draftTerritories = 0;
+        let assignedTerritories = 0;
+        // Process active assignments
+        for (const assignment of activeAssignments) {
+            const assignmentDate = new Date(assignment.effectiveFrom);
+            const now = new Date();
+            if (assignmentDate > now) {
+                scheduledTerritories++;
+            }
+            else {
+                activeTerritories++;
+            }
+            if (assignment.agentId || assignment.teamId) {
+                assignedTerritories++;
+            }
+        }
+        // Process scheduled assignments
+        for (const assignment of scheduledAssignments) {
+            scheduledTerritories++;
+            if (assignment.agentId || assignment.teamId) {
+                assignedTerritories++;
+            }
+        }
+        // Calculate draft territories (total - active - scheduled)
+        draftTerritories = totalTerritories - activeTerritories - scheduledTerritories;
+        // Calculate unassigned territories
+        const unassignedTerritories = totalTerritories - assignedTerritories;
         // Get total residents (this would come from a separate residents collection)
         // For now, we'll use a placeholder calculation
         const totalResidents = totalTerritories * 25; // Average 25 residents per territory
@@ -915,6 +1051,8 @@ const getTerritoryOverviewStats = async (req, res) => {
         const stats = {
             totalTerritories,
             activeTerritories,
+            scheduledTerritories,
+            draftTerritories,
             assignedTerritories,
             unassignedTerritories,
             totalResidents,

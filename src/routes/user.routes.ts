@@ -19,6 +19,7 @@ import {
   updateAgentZoneAssignment,
   bulkUpdateAgentStatuses,
   getDetailedAgent,
+  refreshAllStatuses,
 } from '../controllers/user.controller';
 import { validate } from '../utils/validator';
 import {
@@ -265,6 +266,12 @@ router.post(
  *           type: string
  *           example: "507f1f77bcf86cd799439011"
  *       - in: query
+ *         name: search
+ *         schema:
+ *           type: string
+ *           description: Search by name, email, or username
+ *           example: "john"
+ *       - in: query
  *         name: page
  *         schema:
  *           type: integer
@@ -308,7 +315,7 @@ router.post(
  *                       status:
  *                         type: string
  *                         example: "ACTIVE"
- *                       teamId:
+ *                       primaryTeamId:
  *                         type: object
  *                         properties:
  *                           _id:
@@ -317,7 +324,7 @@ router.post(
  *                           name:
  *                             type: string
  *                             example: "Team Alpha"
- *                       zoneId:
+ *                       primaryZoneId:
  *                         type: object
  *                         properties:
  *                           _id:
@@ -1580,6 +1587,71 @@ router.get(
   requireRoles('SUPERADMIN', 'SUBADMIN'),
   validate(getTeamPerformanceValidation),
   getTeamPerformance
+);
+
+/**
+ * @openapi
+ * /api/users/refresh-statuses:
+ *   post:
+ *     summary: Refresh all agent and team statuses based on zone assignments
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: All statuses refreshed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "All statuses refreshed successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     updatedAgents:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           agentId:
+ *                             type: string
+ *                           name:
+ *                             type: string
+ *                           oldStatus:
+ *                             type: string
+ *                           newStatus:
+ *                             type: string
+ *                     updatedTeams:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           teamId:
+ *                             type: string
+ *                           name:
+ *                             type: string
+ *                           oldStatus:
+ *                             type: string
+ *                           newStatus:
+ *                             type: string
+ *                     summary:
+ *                       type: object
+ *                       properties:
+ *                         agentsUpdated:
+ *                           type: integer
+ *                         teamsUpdated:
+ *                           type: integer
+ */
+router.post(
+  '/refresh-statuses',
+  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  refreshAllStatuses
 );
 
 export default router;

@@ -39,7 +39,7 @@ router.use(requireAuth, requireRoles('SUPERADMIN', 'SUBADMIN'));
  */
 router.post('/create', 
   requireAuth, 
-  requireRoles('SUBADMIN'), 
+  requireRoles('SUPERADMIN', 'SUBADMIN'), 
   validate(createAssignmentValidation), 
   createAssignment
 );

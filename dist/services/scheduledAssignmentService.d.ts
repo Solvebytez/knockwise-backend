@@ -1,5 +1,9 @@
 export declare class ScheduledAssignmentService {
     /**
+     * Sync agent's zoneIds with all current assignments
+     */
+    static syncAgentZoneIds(agentId: string): Promise<void>;
+    /**
      * Create a scheduled assignment
      */
     static createScheduledAssignment(data: {

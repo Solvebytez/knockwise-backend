@@ -27,7 +27,7 @@ router.use(auth_1.requireAuth, (0, auth_1.requireRoles)('SUPERADMIN', 'SUBADMIN'
  *             schema:
  *               $ref: '#/components/schemas/Assignment'
  */
-router.post('/create', auth_1.requireAuth, (0, auth_1.requireRoles)('SUBADMIN'), (0, validator_1.validate)(validators_1.createAssignmentValidation), assignment_controller_1.createAssignment);
+router.post('/create', auth_1.requireAuth, (0, auth_1.requireRoles)('SUPERADMIN', 'SUBADMIN'), (0, validator_1.validate)(validators_1.createAssignmentValidation), assignment_controller_1.createAssignment);
 /**
  * @openapi
  * /api/assignments:

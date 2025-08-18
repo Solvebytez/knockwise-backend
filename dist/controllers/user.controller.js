@@ -3,41 +3,107 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.getDetailedAgent = exports.bulkUpdateAgentStatuses = exports.getRecentAdditions = exports.getTeamOverview = exports.getMyCreatedAgents = exports.getTeamPerformance = exports.getSystemAnalytics = exports.getMyZoneInfo = exports.updateMyProfile = exports.getMyProfile = exports.assignAgentToTeam = exports.getMyTeamMembers = exports.listUsers = exports.getUserById = exports.deleteUser = exports.updateUser = exports.createUser = exports.updateAgentZoneAssignment = exports.updateAgentStatusOnZoneChange = void 0;
+exports.refreshAllStatuses = exports.getDetailedAgent = exports.bulkUpdateAgentStatuses = exports.getRecentAdditions = exports.getTeamOverview = exports.getMyCreatedAgents = exports.getTeamPerformance = exports.getSystemAnalytics = exports.getMyZoneInfo = exports.updateMyProfile = exports.getMyProfile = exports.assignAgentToTeam = exports.getMyTeamMembers = exports.listUsers = exports.getUserById = exports.deleteUser = exports.updateUser = exports.createUser = exports.updateAgentZoneAssignment = exports.updateAgentStatusOnZoneChange = exports.updateAgentStatus = void 0;
 const User_1 = require("../models/User");
 const Team_1 = require("../models/Team");
 const Zone_1 = require("../models/Zone");
 const AgentZoneAssignment_1 = require("../models/AgentZoneAssignment");
 const AgentTeamAssignment_1 = require("../models/AgentTeamAssignment");
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
+// Helper function to calculate team status based on zone assignments
+const calculateTeamStatus = async (teamId) => {
+    try {
+        // Check if team has any zone assignments
+        const teamZoneAssignments = await AgentZoneAssignment_1.AgentZoneAssignment.find({
+            teamId: teamId,
+            status: { $in: ['ACTIVE', 'COMPLETED'] },
+            effectiveTo: null
+        });
+        // Team is ACTIVE if it has any zone assignments
+        const hasZoneAssignment = teamZoneAssignments.length > 0;
+        return hasZoneAssignment ? 'ACTIVE' : 'INACTIVE';
+    }
+    catch (error) {
+        console.error('Error calculating team status:', error);
+        return 'INACTIVE';
+    }
+};
+// Helper function to calculate agent status based on zone assignments (individual and team)
+const calculateAgentStatus = async (agentId) => {
+    try {
+        const agent = await User_1.User.findById(agentId);
+        if (!agent || agent.role !== 'AGENT')
+            return 'INACTIVE';
+        // Import ScheduledAssignment model
+        const { ScheduledAssignment } = require('../models/ScheduledAssignment');
+        // Check individual zone assignments
+        const hasIndividualZoneAssignment = agent.zoneIds && agent.zoneIds.length > 0;
+        const hasIndividualPrimaryZone = agent.primaryZoneId !== null && agent.primaryZoneId !== undefined;
+        // Check team zone assignments (exclude COMPLETED and CANCELLED)
+        const teamZoneAssignments = await AgentZoneAssignment_1.AgentZoneAssignment.find({
+            teamId: { $in: agent.teamIds },
+            status: { $nin: ['COMPLETED', 'CANCELLED'] },
+            effectiveTo: null
+        });
+        const hasTeamZoneAssignment = teamZoneAssignments.length > 0;
+        // Check individual zone assignments (exclude COMPLETED and CANCELLED)
+        const individualZoneAssignments = await AgentZoneAssignment_1.AgentZoneAssignment.find({
+            agentId: agent._id,
+            status: { $nin: ['COMPLETED', 'CANCELLED'] },
+            effectiveTo: null
+        });
+        const hasActiveIndividualZoneAssignment = individualZoneAssignments.length > 0;
+        // Check PENDING scheduled assignments (individual)
+        const pendingIndividualScheduledAssignments = await ScheduledAssignment.find({
+            agentId: agent._id,
+            status: 'PENDING'
+        });
+        const hasPendingIndividualScheduledAssignment = pendingIndividualScheduledAssignments.length > 0;
+        // Check PENDING scheduled assignments (team)
+        const pendingTeamScheduledAssignments = await ScheduledAssignment.find({
+            teamId: { $in: agent.teamIds },
+            status: 'PENDING'
+        });
+        const hasPendingTeamScheduledAssignment = pendingTeamScheduledAssignments.length > 0;
+        // Agent is ACTIVE if:
+        // 1. Has individual zone assignment (primaryZoneId or zoneIds), OR
+        // 2. Has active individual zone assignments, OR
+        // 3. Is part of a team that has zone assignments, OR
+        // 4. Has PENDING scheduled individual assignments, OR
+        // 5. Is part of a team that has PENDING scheduled assignments
+        const shouldBeActive = hasIndividualZoneAssignment ||
+            hasIndividualPrimaryZone ||
+            hasActiveIndividualZoneAssignment ||
+            hasTeamZoneAssignment ||
+            hasPendingIndividualScheduledAssignment ||
+            hasPendingTeamScheduledAssignment;
+        return shouldBeActive ? 'ACTIVE' : 'INACTIVE';
+    }
+    catch (error) {
+        console.error('Error calculating agent status:', error);
+        return 'INACTIVE';
+    }
+};
 // Helper function to update agent status based on zone assignment and task completion
 const updateAgentStatus = async (agentId) => {
     try {
         const agent = await User_1.User.findById(agentId);
         if (!agent || agent.role !== 'AGENT')
             return;
-        // Check if agent has any zone assignments
-        const hasZoneAssignment = agent.zoneIds && agent.zoneIds.length > 0;
-        // Check if agent has any active zone assignments (you can add task completion logic here)
-        const hasActiveZoneAssignment = agent.primaryZoneId !== null && agent.primaryZoneId !== undefined;
-        // Set status to INACTIVE if no zone is assigned or task is completed
-        const shouldBeInactive = !hasZoneAssignment || !hasActiveZoneAssignment;
-        if (shouldBeInactive && agent.status === 'ACTIVE') {
-            await User_1.User.findByIdAndUpdate(agentId, { status: 'INACTIVE' });
-            console.log(`Agent ${agent.name} (${agentId}) status set to INACTIVE - no zone assignment`);
-        }
-        else if (!shouldBeInactive && agent.status === 'INACTIVE') {
-            await User_1.User.findByIdAndUpdate(agentId, { status: 'ACTIVE' });
-            console.log(`Agent ${agent.name} (${agentId}) status set to ACTIVE - zone assigned`);
+        const calculatedStatus = await calculateAgentStatus(agentId);
+        if (calculatedStatus !== agent.status) {
+            await User_1.User.findByIdAndUpdate(agentId, { status: calculatedStatus });
+            console.log(`Agent ${agent.name} (${agentId}) status updated to ${calculatedStatus}`);
         }
     }
     catch (error) {
         console.error('Error updating agent status:', error);
     }
 };
+exports.updateAgentStatus = updateAgentStatus;
 // Update agent status when zone assignment changes
 const updateAgentStatusOnZoneChange = async (agentId) => {
-    await updateAgentStatus(agentId);
+    await (0, exports.updateAgentStatus)(agentId);
 };
 exports.updateAgentStatusOnZoneChange = updateAgentStatusOnZoneChange;
 // Update agent zone assignments and automatically update status
@@ -73,7 +139,7 @@ const updateAgentZoneAssignment = async (req, res) => {
             });
         }
         // Automatically update status based on new zone assignment
-        await updateAgentStatus(agentId);
+        await (0, exports.updateAgentStatus)(agentId);
         // Get the updated agent with new status
         const finalAgent = await User_1.User.findById(agentId).select('-password');
         res.json({
@@ -400,7 +466,7 @@ exports.getUserById = getUserById;
 // List all users with pagination (Superadmin/Subadmin only)
 const listUsers = async (req, res) => {
     try {
-        const { page = 1, limit = 10, role, status, teamId } = req.query;
+        const { page = 1, limit = 10, role, status, teamId, search } = req.query;
         const skip = (Number(page) - 1) * Number(limit);
         const filter = {};
         if (role)
@@ -408,15 +474,23 @@ const listUsers = async (req, res) => {
         if (status)
             filter.status = status;
         if (teamId)
-            filter.teamId = teamId;
-        // If user is not superadmin, only show users from their team
+            filter.teamIds = teamId;
+        // Add search functionality
+        if (search) {
+            filter.$or = [
+                { name: { $regex: search, $options: 'i' } },
+                { email: { $regex: search, $options: 'i' } },
+                { username: { $regex: search, $options: 'i' } }
+            ];
+        }
+        // If user is not superadmin, only show users they created
         if (req.user?.role !== 'SUPERADMIN') {
-            filter.teamIds = req.user?.teamIds;
+            filter.createdBy = req.user?.sub;
         }
         const users = await User_1.User.find(filter)
             .select('-password')
-            .populate('teamId', 'name')
-            .populate('zoneId', 'name')
+            .populate('primaryTeamId', 'name')
+            .populate('primaryZoneId', 'name')
             .skip(skip)
             .limit(Number(limit))
             .sort({ createdAt: -1 });
@@ -685,18 +759,81 @@ const getMyCreatedAgents = async (req, res) => {
             .skip(skip)
             .limit(Number(limit))
             .sort({ createdAt: -1 });
-        // Calculate correct status based on zone assignments and apply status filter
-        const agentsWithCorrectStatus = agents.map(agent => {
-            const hasZoneAssignment = agent.zoneIds && agent.zoneIds.length > 0;
-            const hasActiveZoneAssignment = agent.primaryZoneId !== null && agent.primaryZoneId !== undefined;
-            // Use the same logic as updateAgentStatus function
-            const shouldBeActive = hasZoneAssignment && hasActiveZoneAssignment;
-            const calculatedStatus = shouldBeActive ? 'ACTIVE' : 'INACTIVE';
+        // Calculate correct status and get all zone information
+        const agentsWithCorrectStatus = await Promise.all(agents.map(async (agent) => {
+            const calculatedStatus = await calculateAgentStatus(agent._id.toString());
+            // Get team zone information if agent is part of a team
+            let teamZoneInfo = null;
+            if (agent.primaryTeamId) {
+                const teamZoneAssignment = await AgentZoneAssignment_1.AgentZoneAssignment.findOne({
+                    teamId: agent.primaryTeamId._id,
+                    status: { $nin: ['COMPLETED', 'CANCELLED'] },
+                    effectiveTo: null
+                }).populate('zoneId', 'name');
+                if (teamZoneAssignment && teamZoneAssignment.zoneId) {
+                    teamZoneInfo = {
+                        _id: teamZoneAssignment.zoneId._id,
+                        name: teamZoneAssignment.zoneId.name
+                    };
+                }
+            }
+            // Import ScheduledAssignment model
+            const { ScheduledAssignment } = require('../models/ScheduledAssignment');
+            // Get all individual zone assignments for this agent
+            const individualZoneAssignments = await AgentZoneAssignment_1.AgentZoneAssignment.find({
+                agentId: agent._id,
+                status: { $nin: ['COMPLETED', 'CANCELLED'] },
+                effectiveTo: null
+            }).populate('zoneId', 'name');
+            // Get all team zone assignments for this agent's teams
+            const teamZoneAssignments = await AgentZoneAssignment_1.AgentZoneAssignment.find({
+                teamId: { $in: agent.teamIds },
+                status: { $nin: ['COMPLETED', 'CANCELLED'] },
+                effectiveTo: null
+            }).populate('zoneId', 'name');
+            // Get all PENDING scheduled individual assignments
+            const pendingIndividualScheduledAssignments = await ScheduledAssignment.find({
+                agentId: agent._id,
+                status: 'PENDING'
+            }).populate('zoneId', 'name');
+            // Get all PENDING scheduled team assignments
+            const pendingTeamScheduledAssignments = await ScheduledAssignment.find({
+                teamId: { $in: agent.teamIds },
+                status: 'PENDING'
+            }).populate('zoneId', 'name');
+            // Combine all assignments (active + scheduled)
+            const allAssignments = [
+                ...individualZoneAssignments,
+                ...teamZoneAssignments,
+                ...pendingIndividualScheduledAssignments,
+                ...pendingTeamScheduledAssignments
+            ];
+            // Create a map of zones from all assignment records (both active and scheduled)
+            const assignmentZones = allAssignments.map(assignment => ({
+                _id: assignment.zoneId._id,
+                name: assignment.zoneId.name,
+                isPrimary: assignment.zoneId._id.toString() === agent.primaryZoneId?._id?.toString(),
+                isScheduled: assignment.status === 'PENDING' // Add flag to identify scheduled assignments
+            }));
+            // If no assignment records found, fall back to User model's zoneIds
+            let allAssignedZones = assignmentZones;
+            if (assignmentZones.length === 0 && agent.zoneIds && agent.zoneIds.length > 0) {
+                // Get zone details from the zoneIds array
+                const Zone = require('../models/Zone').default;
+                const zones = await Zone.find({ _id: { $in: agent.zoneIds } }).select('name');
+                allAssignedZones = zones.map(zone => ({
+                    _id: zone._id,
+                    name: zone.name,
+                    isPrimary: zone._id.toString() === agent.primaryZoneId?._id?.toString()
+                }));
+            }
             return {
                 ...agent.toObject(),
-                status: calculatedStatus // Use calculated status instead of stored status
+                status: calculatedStatus, // Use calculated status instead of stored status
+                teamZoneInfo, // Add team zone information
+                allAssignedZones // Add all individual zone assignments
             };
-        });
+        }));
         // Apply status filter after calculating correct status
         const filteredAgents = status && status !== 'all'
             ? agentsWithCorrectStatus.filter(agent => agent.status === status)
@@ -704,17 +841,13 @@ const getMyCreatedAgents = async (req, res) => {
         // Recalculate total count with status filter
         const totalFilter = { ...filter };
         if (status && status !== 'all') {
-            // For status filtering, we need to check zone assignments
-            // This is a simplified approach - in production you might want to optimize this
-            const allAgents = await User_1.User.find(filter).select('primaryZoneId zoneIds');
-            const filteredCount = allAgents.filter(agent => {
-                const hasZoneAssignment = agent.zoneIds && agent.zoneIds.length > 0;
-                const hasActiveZoneAssignment = agent.primaryZoneId !== null && agent.primaryZoneId !== undefined;
-                const shouldBeActive = hasZoneAssignment && hasActiveZoneAssignment;
-                const calculatedStatus = shouldBeActive ? 'ACTIVE' : 'INACTIVE';
+            // For status filtering, we need to check zone assignments (individual and team)
+            const allAgents = await User_1.User.find(filter).select('primaryZoneId zoneIds teamIds');
+            const filteredCount = await Promise.all(allAgents.map(async (agent) => {
+                const calculatedStatus = await calculateAgentStatus(agent._id.toString());
                 return calculatedStatus === status;
-            }).length;
-            var total = filteredCount;
+            }));
+            var total = filteredCount.filter(Boolean).length;
         }
         else {
             total = await User_1.User.countDocuments(filter);
@@ -754,11 +887,9 @@ const getTeamOverview = async (req, res) => {
         let inactiveAgents = 0;
         // Count agents based on zone assignment logic (same as status update logic)
         for (const agent of agents) {
-            const hasZoneAssignment = agent.zoneIds && agent.zoneIds.length > 0;
-            const hasActiveZoneAssignment = agent.primaryZoneId !== null && agent.primaryZoneId !== undefined;
-            // Use the same logic as updateAgentStatus function
-            const shouldBeActive = hasZoneAssignment && hasActiveZoneAssignment;
-            if (shouldBeActive) {
+            // Use the same calculateAgentStatus function that includes scheduled assignments
+            const calculatedStatus = await calculateAgentStatus(agent._id.toString());
+            if (calculatedStatus === 'ACTIVE') {
                 activeAgents++;
             }
             else {
@@ -808,12 +939,9 @@ const getRecentAdditions = async (req, res) => {
             .sort({ createdAt: -1 })
             .limit(Number(limit));
         // Calculate correct status based on zone assignments
-        const agentsWithCorrectStatus = recentAgents.map(agent => {
-            const hasZoneAssignment = agent.zoneIds && agent.zoneIds.length > 0;
-            const hasActiveZoneAssignment = agent.primaryZoneId !== null && agent.primaryZoneId !== undefined;
-            // Use the same logic as updateAgentStatus function
-            const shouldBeActive = hasZoneAssignment && hasActiveZoneAssignment;
-            const calculatedStatus = shouldBeActive ? 'ACTIVE' : 'INACTIVE';
+        const agentsWithCorrectStatus = await Promise.all(recentAgents.map(async (agent) => {
+            // Use the same calculateAgentStatus function that includes scheduled assignments
+            const calculatedStatus = await calculateAgentStatus(agent._id.toString());
             return {
                 _id: agent._id,
                 name: agent.name,
@@ -822,7 +950,7 @@ const getRecentAdditions = async (req, res) => {
                 primaryZoneId: agent.primaryZoneId,
                 createdAt: agent.createdAt
             };
-        });
+        }));
         res.json({
             success: true,
             data: agentsWithCorrectStatus
@@ -912,14 +1040,62 @@ const getDetailedAgent = async (req, res) => {
                 message: 'You do not have permission to view this agent'
             });
         }
-        // Get team information
-        const teams = agent.teamIds && agent.teamIds.length > 0
-            ? await Team_1.Team.find({ _id: { $in: agent.teamIds } }).select('name')
+        // Import ScheduledAssignment model
+        const { ScheduledAssignment } = require('../models/ScheduledAssignment');
+        // Get all individual zone assignments for this agent
+        const individualZoneAssignments = await AgentZoneAssignment_1.AgentZoneAssignment.find({
+            agentId: agent._id,
+            status: { $nin: ['COMPLETED', 'CANCELLED'] },
+            effectiveTo: null
+        }).populate('zoneId', 'name');
+        // Get all team zone assignments for this agent's teams
+        const teamZoneAssignments = await AgentZoneAssignment_1.AgentZoneAssignment.find({
+            teamId: { $in: agent.teamIds },
+            status: { $nin: ['COMPLETED', 'CANCELLED'] },
+            effectiveTo: null
+        }).populate('zoneId', 'name');
+        // Get all PENDING scheduled individual assignments
+        const pendingIndividualScheduledAssignments = await ScheduledAssignment.find({
+            agentId: agent._id,
+            status: 'PENDING'
+        }).populate('zoneId', 'name');
+        // Get all PENDING scheduled team assignments
+        const pendingTeamScheduledAssignments = await ScheduledAssignment.find({
+            teamId: { $in: agent.teamIds },
+            status: 'PENDING'
+        }).populate('zoneId', 'name');
+        // Combine all assignments (active + scheduled)
+        const allAssignments = [
+            ...individualZoneAssignments,
+            ...teamZoneAssignments,
+            ...pendingIndividualScheduledAssignments,
+            ...pendingTeamScheduledAssignments
+        ];
+        // Create a map of zones from all assignment records (both active and scheduled)
+        const assignmentZones = allAssignments.map(assignment => ({
+            _id: assignment.zoneId._id,
+            name: assignment.zoneId.name,
+            isPrimary: assignment.zoneId._id.toString() === agent.primaryZoneId?._id?.toString(),
+            isScheduled: assignment.status === 'PENDING' // Add flag to identify scheduled assignments
+        }));
+        // Get team information (including teams from assignments)
+        const teamIdsFromAssignments = [
+            ...teamZoneAssignments.map(a => a.teamId),
+            ...pendingTeamScheduledAssignments.map(a => a.teamId)
+        ];
+        const allTeamIds = [...new Set([
+                ...(agent.teamIds || []),
+                ...teamIdsFromAssignments
+            ])];
+        const teams = allTeamIds.length > 0
+            ? await Team_1.Team.find({ _id: { $in: allTeamIds } }).select('name')
             : [];
-        // Get zone information
-        const zones = agent.zoneIds && agent.zoneIds.length > 0
-            ? await Zone_1.Zone.find({ _id: { $in: agent.zoneIds } }).select('name')
-            : [];
+        // Use assignment zones if available, otherwise fall back to User model's zoneIds
+        const zones = assignmentZones.length > 0
+            ? assignmentZones
+            : (agent.zoneIds && agent.zoneIds.length > 0
+                ? await Zone_1.Zone.find({ _id: { $in: agent.zoneIds } }).select('name')
+                : []);
         // Get createdBy admin information
         let createdByInfo = null;
         if (agent.createdBy) {
@@ -932,11 +1108,11 @@ const getDetailedAgent = async (req, res) => {
                 };
             }
         }
-        // Calculate correct status based on zone assignments
-        const hasZoneAssignment = agent.zoneIds && agent.zoneIds.length > 0;
-        const hasActiveZoneAssignment = agent.primaryZoneId !== null && agent.primaryZoneId !== undefined;
-        const shouldBeActive = hasZoneAssignment && hasActiveZoneAssignment;
-        const calculatedStatus = shouldBeActive ? 'ACTIVE' : 'INACTIVE';
+        // Calculate correct status based on zone assignments (including scheduled assignments)
+        const calculatedStatus = await calculateAgentStatus(agent._id.toString());
+        // Get primary team and zone from assignments
+        const primaryTeam = teams.length > 0 ? teams[0] : null; // First team as primary
+        const primaryZone = zones.length > 0 ? zones[0] : null; // First zone as primary
         const detailedAgent = {
             _id: agent._id,
             name: agent.name,
@@ -946,8 +1122,8 @@ const getDetailedAgent = async (req, res) => {
             role: agent.role,
             status: calculatedStatus,
             password: agent.originalPassword || 'Password not available', // Return original password for admin view
-            primaryTeamId: agent.primaryTeamId,
-            primaryZoneId: agent.primaryZoneId,
+            primaryTeamId: primaryTeam,
+            primaryZoneId: primaryZone,
             teamIds: agent.teamIds,
             zoneIds: agent.zoneIds,
             teams: teams,
@@ -972,4 +1148,60 @@ const getDetailedAgent = async (req, res) => {
     }
 };
 exports.getDetailedAgent = getDetailedAgent;
+// Function to refresh all agent and team statuses based on zone assignments
+const refreshAllStatuses = async (req, res) => {
+    try {
+        const currentUserId = req.user?.sub;
+        // Get all agents created by this admin
+        const agents = await User_1.User.find({
+            role: 'AGENT',
+            createdBy: currentUserId
+        });
+        // Update each agent's status
+        const agentUpdates = agents.map(async (agent) => {
+            const calculatedStatus = await calculateAgentStatus(agent._id.toString());
+            if (calculatedStatus !== agent.status) {
+                await User_1.User.findByIdAndUpdate(agent._id, { status: calculatedStatus });
+                return { agentId: agent._id, name: agent.name, oldStatus: agent.status, newStatus: calculatedStatus };
+            }
+            return null;
+        });
+        const agentResults = await Promise.all(agentUpdates);
+        const updatedAgents = agentResults.filter(result => result !== null);
+        // Get all teams created by this admin
+        const teams = await Team_1.Team.find({ createdBy: currentUserId });
+        // Update each team's status
+        const teamUpdates = teams.map(async (team) => {
+            const calculatedStatus = await calculateTeamStatus(team._id.toString());
+            if (calculatedStatus !== team.status) {
+                await Team_1.Team.findByIdAndUpdate(team._id, { status: calculatedStatus });
+                return { teamId: team._id, name: team.name, oldStatus: team.status, newStatus: calculatedStatus };
+            }
+            return null;
+        });
+        const teamResults = await Promise.all(teamUpdates);
+        const updatedTeams = teamResults.filter(result => result !== null);
+        res.json({
+            success: true,
+            message: 'All statuses refreshed successfully',
+            data: {
+                updatedAgents,
+                updatedTeams,
+                summary: {
+                    agentsUpdated: updatedAgents.length,
+                    teamsUpdated: updatedTeams.length
+                }
+            }
+        });
+    }
+    catch (error) {
+        console.error('Error refreshing statuses:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to refresh statuses',
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+};
+exports.refreshAllStatuses = refreshAllStatuses;
 //# sourceMappingURL=user.controller.js.map

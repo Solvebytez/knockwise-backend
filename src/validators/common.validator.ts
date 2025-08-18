@@ -80,7 +80,7 @@ export const teamActivityListQueries = [
 export const zoneListQueries = [
   ...paginationQueries,
   query('teamId').optional().isMongoId(),
-  query('status').optional().isIn(['ACTIVE', 'INACTIVE']),
+  query('status').optional().isIn(['ACTIVE', 'INACTIVE', 'DRAFT', 'SCHEDULED']),
 ];
 
 export const nearbyPropertiesQueries = [

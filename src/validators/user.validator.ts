@@ -191,6 +191,11 @@ export const listUsersValidation = [
     .optional()
     .isMongoId()
     .withMessage('Team ID must be a valid MongoDB ObjectId'),
+  query('search')
+    .optional()
+    .isString()
+    .isLength({ min: 1, max: 100 })
+    .withMessage('Search query must be between 1 and 100 characters'),
 ];
 
 export const getUserByIdValidation = [
