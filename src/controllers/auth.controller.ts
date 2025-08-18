@@ -255,15 +255,22 @@ export async function refresh(req: Request, res: Response): Promise<void> {
       return;
     }
 
-    // 3. Issue new access token
+    // 3. Get user info for role
+    const user = await User.findById(payload.sub).select('role name email status');
+    if (!user) {
+      res.status(401).json({ message: "User not found" });
+      return;
+    }
+
+    // 4. Issue new access token
     const accessToken = signAccessToken({
       sub: payload.sub,
-      role: payload.role,
+      role: user.role,
     });
 
     const isProduction = process.env.NODE_ENV === "production";
 
-    // 4. Cookie options (important!)
+    // 5. Cookie options (important!)
     const cookieOptions = {
       httpOnly: true,
       secure: isProduction, // only HTTPS in production
@@ -272,12 +279,22 @@ export async function refresh(req: Request, res: Response): Promise<void> {
       maxAge: parseTime(env.jwtExpiresIn),
     } as const;
 
-    // 5. Send new accessToken as cookie
+    // 6. Send new accessToken as cookie
     res.cookie("accessToken", accessToken, cookieOptions);
 
+    // 7. Return user role and basic info
     res.json({
       success: true,
       message: "Token refreshed successfully",
+      data: {
+        user: {
+          _id: user._id,
+          name: user.name,
+          email: user.email,
+          role: user.role,
+          status: user.status
+        }
+      }
     });
   } catch (err) {
     console.error("Refresh error:", err);
@@ -292,16 +309,35 @@ export async function logout(req: Request, res: Response): Promise<void> {
     const refreshToken = bodyRefreshToken || cookieRefreshToken;
     
     if (refreshToken) {
+      // Hash the refresh token to match what's stored in DB
+      const hashedToken = crypto
+        .createHash("sha256")
+        .update(refreshToken)
+        .digest("hex");
+      
       // Revoke the refresh token
       await RefreshToken.findOneAndUpdate(
-        { token: refreshToken },
+        { token: hashedToken },
         { revokedAt: new Date() }
       );
     }
     
-    // Clear cookies
-    res.clearCookie('accessToken', { path: '/' });
-    res.clearCookie('refreshToken', { path: '/' });
+    // Clear cookies with proper options to ensure they're removed
+    const isProduction = process.env.NODE_ENV === "production";
+    
+    res.clearCookie('accessToken', { 
+      path: '/',
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax"
+    });
+    
+    res.clearCookie('refreshToken', { 
+      path: '/',
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax"
+    });
     
     res.json({ 
       success: true,
@@ -310,8 +346,21 @@ export async function logout(req: Request, res: Response): Promise<void> {
   } catch (error) {
     console.error('Logout error:', error);
     // Even if there's an error, clear cookies
-    res.clearCookie('accessToken', { path: '/' });
-    res.clearCookie('refreshToken', { path: '/' });
+    const isProduction = process.env.NODE_ENV === "production";
+    
+    res.clearCookie('accessToken', { 
+      path: '/',
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax"
+    });
+    
+    res.clearCookie('refreshToken', { 
+      path: '/',
+      httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax"
+    });
     
     res.json({ 
       success: true,
