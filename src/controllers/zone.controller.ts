@@ -14,11 +14,295 @@ import { ScheduledAssignment } from '../models/ScheduledAssignment';
 import { AuthRequest } from '../middleware/auth';
 import { processBuildingData, getHouseNumberStats, extractHouseNumber } from '../utils/addressParser';
 import { checkZoneOverlap, checkDuplicateBuildings, validateZoneBoundary } from '../utils/zoneOverlapChecker';
+import { ScheduledAssignmentService } from '../services/scheduledAssignmentService';
+
+// Helper function to sync agent's zoneIds with all current assignments
+const syncAgentZoneIds = async (agentId: string, session?: mongoose.ClientSession) => {
+  try {
+    console.log(`🔄 syncAgentZoneIds: Starting for agent ${agentId}`);
+    
+    // Get all active assignments for this agent (individual and team-based)
+    const individualAssignments = await AgentZoneAssignment.find({
+      agentId: agentId,
+      status: { $nin: ['COMPLETED', 'CANCELLED'] },
+      effectiveTo: null
+    }).populate('zoneId', '_id');
+
+    const agent = await User.findById(agentId);
+    if (!agent) {
+      console.log(`❌ syncAgentZoneIds: Agent ${agentId} not found`);
+      return;
+    }
+
+    // Get team-based assignments for this agent's teams
+    const teamAssignments = await AgentZoneAssignment.find({
+      teamId: { $in: agent.teamIds },
+      status: { $nin: ['COMPLETED', 'CANCELLED'] },
+      effectiveTo: null
+    }).populate('zoneId', '_id');
+
+    console.log(`📋 syncAgentZoneIds: Found ${individualAssignments.length} individual assignments`);
+    console.log(`📋 syncAgentZoneIds: Found ${teamAssignments.length} team assignments`);
+
+    // Combine all zone IDs from both individual and team assignments
+    const allZoneIds = [
+      ...individualAssignments.map(a => a.zoneId._id.toString()),
+      ...teamAssignments.map(a => a.zoneId._id.toString())
+    ];
+
+    // Remove duplicates
+    const uniqueZoneIds = [...new Set(allZoneIds)];
+
+    console.log(`📋 syncAgentZoneIds: Combined zone IDs: ${allZoneIds.length}, Unique zone IDs: ${uniqueZoneIds.length}`);
+
+    // Update the agent's zoneIds to match all current assignments
+    const updateOptions = session ? { session } : {};
+    await User.findByIdAndUpdate(agentId, {
+      zoneIds: uniqueZoneIds
+    }, updateOptions);
+
+    console.log(`✅ syncAgentZoneIds: Synced zoneIds for agent ${agent.name}: ${uniqueZoneIds.length} zones`);
+  } catch (error) {
+    console.error('❌ syncAgentZoneIds: Error syncing agent zoneIds:', error);
+  }
+};
+
+// Helper function to update agent status based on zone assignments
+const updateAgentStatus = async (agentId: string, session?: mongoose.ClientSession) => {
+  try {
+    const agent = await User.findById(agentId);
+    if (!agent || agent.role !== 'AGENT') return;
+
+    // Check individual zone assignments
+    const hasIndividualZoneAssignment = agent.zoneIds && agent.zoneIds.length > 0;
+    const hasIndividualPrimaryZone = agent.primaryZoneId !== null && agent.primaryZoneId !== undefined;
+
+    // Check team zone assignments (exclude COMPLETED and CANCELLED)
+    const teamZoneAssignments = await AgentZoneAssignment.find({
+      teamId: { $in: agent.teamIds },
+      status: { $nin: ['COMPLETED', 'CANCELLED'] },
+      effectiveTo: null
+    });
+
+    const hasTeamZoneAssignment = teamZoneAssignments.length > 0;
+
+    // Check individual zone assignments (exclude COMPLETED and CANCELLED)
+    const individualZoneAssignments = await AgentZoneAssignment.find({
+      agentId: agent._id,
+      status: { $nin: ['COMPLETED', 'CANCELLED'] },
+      effectiveTo: null
+    });
+
+    const hasActiveIndividualZoneAssignment = individualZoneAssignments.length > 0;
+
+    // Check PENDING scheduled assignments (individual)
+    const pendingIndividualScheduledAssignments = await ScheduledAssignment.find({
+      agentId: agent._id,
+      status: 'PENDING'
+    });
+
+    const hasPendingIndividualScheduledAssignment = pendingIndividualScheduledAssignments.length > 0;
+
+    // Check PENDING scheduled assignments (team)
+    const pendingTeamScheduledAssignments = await ScheduledAssignment.find({
+      teamId: { $in: agent.teamIds },
+      status: 'PENDING'
+    });
+
+    const hasPendingTeamScheduledAssignment = pendingTeamScheduledAssignments.length > 0;
+
+    // Agent is ACTIVE if:
+    // 1. Has individual zone assignment (primaryZoneId or zoneIds), OR
+    // 2. Has active individual zone assignments, OR
+    // 3. Is part of a team that has zone assignments, OR
+    // 4. Has PENDING scheduled individual assignments, OR
+    // 5. Is part of a team that has PENDING scheduled assignments
+    // 6. OR if they were previously ACTIVE (don't automatically deactivate)
+    const shouldBeActive = hasIndividualZoneAssignment || 
+                          hasIndividualPrimaryZone || 
+                          hasActiveIndividualZoneAssignment || 
+                          hasTeamZoneAssignment ||
+                          hasPendingIndividualScheduledAssignment ||
+                          hasPendingTeamScheduledAssignment ||
+                          agent.status === 'ACTIVE'; // Keep ACTIVE status if already set
+
+    const calculatedStatus = shouldBeActive ? 'ACTIVE' : 'INACTIVE';
+    
+    // Only update if the agent should be ACTIVE (don't automatically deactivate)
+    if (calculatedStatus === 'ACTIVE' && agent.status !== 'ACTIVE') {
+      const updateOptions = session ? { session } : {};
+      await User.findByIdAndUpdate(agentId, { status: calculatedStatus }, updateOptions);
+      console.log(`Agent ${agent.name} (${agentId}) status updated to ${calculatedStatus}`);
+    }
+  } catch (error) {
+    console.error('Error updating agent status:', error);
+  }
+};
+
+// Helper function to update team status based on zone assignments
+const updateTeamStatus = async (teamId: string, session?: mongoose.ClientSession) => {
+  try {
+    console.log(`🔄 updateTeamStatus: Starting for team ${teamId}`);
+    const team = await Team.findById(teamId);
+    if (!team) {
+      console.log(`❌ updateTeamStatus: Team ${teamId} not found`);
+      return;
+    }
+
+    console.log(`📋 updateTeamStatus: Current status for ${team.name}: ${team.status}`);
+
+    // Check if team has any zone assignments (exclude COMPLETED and CANCELLED)
+    const teamZoneAssignments = await AgentZoneAssignment.find({
+      teamId: teamId,
+      status: { $nin: ['COMPLETED', 'CANCELLED'] },
+      effectiveTo: null
+    });
+
+    // Check if team has any PENDING scheduled assignments
+    const scheduledAssignments = await ScheduledAssignment.find({
+      teamId: teamId,
+      status: 'PENDING'
+    });
+
+    console.log(`📋 updateTeamStatus: Found ${teamZoneAssignments.length} active zone assignments`);
+    console.log(`📋 updateTeamStatus: Found ${scheduledAssignments.length} pending scheduled assignments`);
+
+    // Team is ACTIVE if it has any zone assignments (active or scheduled)
+    const hasZoneAssignment = teamZoneAssignments.length > 0 || scheduledAssignments.length > 0;
+    const newStatus = hasZoneAssignment ? 'ACTIVE' : 'INACTIVE';
+    
+    console.log(`📋 updateTeamStatus: Has zone assignment: ${hasZoneAssignment}, New status: ${newStatus}`);
+    
+    if (newStatus !== team.status) {
+      const updateOptions = session ? { session } : {};
+      await Team.findByIdAndUpdate(teamId, { status: newStatus }, updateOptions);
+      console.log(`✅ updateTeamStatus: Team ${team.name} (${teamId}) status updated to ${newStatus}`);
+    } else {
+      console.log(`✅ updateTeamStatus: Team ${team.name} (${teamId}) status unchanged: ${team.status}`);
+    }
+  } catch (error) {
+    console.error('❌ updateTeamStatus: Error updating team status:', error);
+  }
+};
+
+// Helper function to update team assignment status based on zone assignments
+const updateTeamAssignmentStatus = async (teamId: string, session?: mongoose.ClientSession) => {
+  try {
+    console.log(`🔄 updateTeamAssignmentStatus: Starting for team ${teamId}`);
+    const team = await Team.findById(teamId);
+    if (!team) {
+      console.log(`❌ updateTeamAssignmentStatus: Team ${teamId} not found`);
+      return;
+    }
+
+    console.log(`📋 updateTeamAssignmentStatus: Current assignment status for ${team.name}: ${team.assignmentStatus}`);
+
+    // Check if team has any active zone assignments (exclude COMPLETED and CANCELLED)
+    const activeZoneAssignments = await AgentZoneAssignment.find({
+      teamId: teamId,
+      status: { $nin: ['COMPLETED', 'CANCELLED'] },
+      effectiveTo: null
+    });
+
+    // Check if team has any PENDING scheduled assignments
+    const scheduledAssignments = await ScheduledAssignment.find({
+      teamId: teamId,
+      status: 'PENDING'
+    });
+
+    console.log(`📋 updateTeamAssignmentStatus: Found ${activeZoneAssignments.length} active zone assignments`);
+    console.log(`📋 updateTeamAssignmentStatus: Found ${scheduledAssignments.length} pending scheduled assignments`);
+
+    // Team is ASSIGNED if it has any zone assignments (active or scheduled)
+    const hasZoneAssignment = activeZoneAssignments.length > 0 || scheduledAssignments.length > 0;
+    const newAssignmentStatus = hasZoneAssignment ? 'ASSIGNED' : 'UNASSIGNED';
+
+    console.log(`📋 updateTeamAssignmentStatus: Has zone assignment: ${hasZoneAssignment}, New assignment status: ${newAssignmentStatus}`);
+
+    if (newAssignmentStatus !== team.assignmentStatus) {
+      const updateOptions = session ? { session } : {};
+      await Team.findByIdAndUpdate(teamId, { assignmentStatus: newAssignmentStatus }, updateOptions);
+      console.log(`✅ updateTeamAssignmentStatus: Team ${team.name} (${teamId}) assignment status updated to ${newAssignmentStatus}`);
+    } else {
+      console.log(`✅ updateTeamAssignmentStatus: Team ${team.name} (${teamId}) assignment status unchanged: ${team.assignmentStatus}`);
+    }
+  } catch (error) {
+    console.error('❌ updateTeamAssignmentStatus: Error updating team assignment status:', error);
+  }
+};
+
+// Helper function to update user assignment status based on zone assignments
+const updateUserAssignmentStatus = async (userId: string, session?: mongoose.ClientSession) => {
+  try {
+    console.log(`🔄 updateUserAssignmentStatus: Starting for user ${userId}`);
+    const user = await User.findById(userId);
+    if (!user || user.role !== 'AGENT') {
+      console.log(`❌ updateUserAssignmentStatus: User ${userId} not found or not an agent`);
+      return;
+    }
+
+    console.log(`📋 updateUserAssignmentStatus: Current assignment status for ${user.name}: ${user.assignmentStatus}`);
+
+    // Check individual zone assignments (exclude COMPLETED and CANCELLED)
+    const individualZoneAssignments = await AgentZoneAssignment.find({
+      agentId: user._id,
+      status: { $nin: ['COMPLETED', 'CANCELLED'] },
+      effectiveTo: null
+    });
+
+    // Check team zone assignments (exclude COMPLETED and CANCELLED)
+    const teamZoneAssignments = await AgentZoneAssignment.find({
+      teamId: { $in: user.teamIds },
+      status: { $nin: ['COMPLETED', 'CANCELLED'] },
+      effectiveTo: null
+    });
+
+    // Check PENDING scheduled assignments (individual)
+    const pendingIndividualScheduledAssignments = await ScheduledAssignment.find({
+      agentId: user._id,
+      status: 'PENDING'
+    });
+
+    // Check PENDING scheduled assignments (team)
+    const pendingTeamScheduledAssignments = await ScheduledAssignment.find({
+      teamId: { $in: user.teamIds },
+      status: 'PENDING'
+    });
+
+    console.log(`📋 updateUserAssignmentStatus: Found ${individualZoneAssignments.length} individual zone assignments`);
+    console.log(`📋 updateUserAssignmentStatus: Found ${teamZoneAssignments.length} team zone assignments`);
+    console.log(`📋 updateUserAssignmentStatus: Found ${pendingIndividualScheduledAssignments.length} pending individual scheduled assignments`);
+    console.log(`📋 updateUserAssignmentStatus: Found ${pendingTeamScheduledAssignments.length} pending team scheduled assignments`);
+
+    // User is ASSIGNED if they have any zone assignments (active or scheduled)
+    const hasZoneAssignment = individualZoneAssignments.length > 0 || 
+                             teamZoneAssignments.length > 0 ||
+                             pendingIndividualScheduledAssignments.length > 0 ||
+                             pendingTeamScheduledAssignments.length > 0;
+
+    const newAssignmentStatus = hasZoneAssignment ? 'ASSIGNED' : 'UNASSIGNED';
+    
+    console.log(`📋 updateUserAssignmentStatus: Has zone assignment: ${hasZoneAssignment}, New assignment status: ${newAssignmentStatus}`);
+    
+    if (newAssignmentStatus !== user.assignmentStatus) {
+      const updateOptions = session ? { session } : {};
+      await User.findByIdAndUpdate(userId, { assignmentStatus: newAssignmentStatus }, updateOptions);
+      console.log(`✅ updateUserAssignmentStatus: User ${user.name} (${userId}) assignment status updated to ${newAssignmentStatus}`);
+    } else {
+      console.log(`✅ updateUserAssignmentStatus: User ${user.name} (${userId}) assignment status unchanged: ${user.assignmentStatus}`);
+    }
+  } catch (error) {
+    console.error('❌ updateUserAssignmentStatus: Error updating user assignment status:', error);
+  }
+};
 
 // Create a new zone
 export const createZone = async (req: AuthRequest, res: Response) => {
   try {
-    const { name, description, boundary, teamId, buildingData } = req.body;
+    console.log('=== CREATE ZONE ENDPOINT CALLED ===');
+    console.log('🚀 createZone: Starting zone creation...');
+    const { name, description, boundary, teamId, buildingData, effectiveFrom } = req.body;
+    console.log('📝 createZone: Request data:', { name, teamId, effectiveFrom });
 
     // Validate boundary format
     if (!validateZoneBoundary(boundary)) {
@@ -76,7 +360,12 @@ export const createZone = async (req: AuthRequest, res: Response) => {
     // Determine zone status based on assignment
     let zoneStatus = 'DRAFT';
     if (teamId || req.body.assignedAgentId) {
-      zoneStatus = 'ACTIVE';
+      // Check if this is a future assignment
+      const effectiveDate = effectiveFrom ? new Date(effectiveFrom) : new Date();
+      const now = new Date();
+      const isFutureAssignment = effectiveDate > now;
+      
+      zoneStatus = isFutureAssignment ? 'SCHEDULED' : 'ACTIVE';
     }
 
     const zone = new Zone({
@@ -90,6 +379,114 @@ export const createZone = async (req: AuthRequest, res: Response) => {
     });
 
     await zone.save();
+
+    // Handle team assignment if teamId is provided
+    if (teamId) {
+      console.log('👥 createZone: Team assignment detected, teamId:', teamId);
+      // Get the team
+      const team = await Team.findById(teamId);
+      if (team && team.agentIds && team.agentIds.length > 0) {
+        console.log('👥 createZone: Team found with', team.agentIds.length, 'members');
+        const effectiveDate = effectiveFrom ? new Date(effectiveFrom) : new Date();
+        const now = new Date();
+        const isFutureAssignment = effectiveDate > now;
+        console.log('📅 createZone: Assignment type:', isFutureAssignment ? 'FUTURE' : 'IMMEDIATE');
+
+        if (isFutureAssignment) {
+          // Create scheduled assignment for future date
+          const scheduledAssignment = await ScheduledAssignmentService.createScheduledAssignment({
+            teamId: teamId,
+            zoneId: zone._id,
+            scheduledDate: effectiveDate,
+            effectiveFrom: effectiveDate,
+            assignedBy: req.user?.id as string
+          });
+
+          // Update team assignment status and team status
+          await updateTeamAssignmentStatus(teamId);
+          await updateTeamStatus(teamId);
+          
+          // Update assignment status for all team members (they have pending scheduled assignment)
+          for (const agentId of team.agentIds) {
+            await updateUserAssignmentStatus(agentId.toString());
+          }
+        } else {
+          // Create immediate team assignments for all team members
+          const teamAssignments = team.agentIds.map((agentId) => ({
+            agentId,
+            teamId,
+            zoneId: zone._id,
+            effectiveFrom: effectiveDate,
+            status: 'ACTIVE',
+            assignedBy: req.user?.id as string
+          }));
+
+          await AgentZoneAssignment.insertMany(teamAssignments);
+
+          // Update user fields for all team members
+          await User.updateMany(
+            { _id: { $in: team.agentIds } },
+            {
+              primaryZoneId: zone._id,
+              $addToSet: { zoneIds: zone._id }
+            }
+          );
+
+          // Update assignment status for all team members
+          for (const agentId of team.agentIds) {
+            await syncAgentZoneIds(agentId.toString());
+            await updateUserAssignmentStatus(agentId.toString());
+          }
+
+          // Update team assignment status and team status
+          await updateTeamAssignmentStatus(teamId);
+          await updateTeamStatus(teamId);
+        }
+      }
+    }
+
+    // Handle individual agent assignment if assignedAgentId is provided
+    if (req.body.assignedAgentId) {
+      const assignedAgentId = req.body.assignedAgentId;
+      const effectiveDate = effectiveFrom ? new Date(effectiveFrom) : new Date();
+      const now = new Date();
+      const isFutureAssignment = effectiveDate > now;
+
+      if (isFutureAssignment) {
+        // Create scheduled assignment for future date
+        const scheduledAssignment = await ScheduledAssignmentService.createScheduledAssignment({
+          agentId: assignedAgentId,
+          zoneId: zone._id,
+          scheduledDate: effectiveDate,
+          effectiveFrom: effectiveDate,
+          assignedBy: req.user?.id as string
+        });
+
+        // Update agent assignment status
+        await updateUserAssignmentStatus(assignedAgentId);
+      } else {
+        // Create immediate individual assignment
+        const assignmentData = {
+          agentId: assignedAgentId,
+          zoneId: zone._id,
+          effectiveFrom: effectiveDate,
+          status: 'ACTIVE',
+          assignedBy: req.user?.id as string
+        };
+
+        await AgentZoneAssignment.create(assignmentData);
+
+        // Update user fields
+        await User.findByIdAndUpdate(assignedAgentId, {
+          primaryZoneId: zone._id,
+          $addToSet: { zoneIds: zone._id }
+        });
+
+        // Sync agent zoneIds and update assignment status
+        await syncAgentZoneIds(assignedAgentId);
+        await updateUserAssignmentStatus(assignedAgentId);
+      }
+    }
 
     // Save individual residents if building data is provided
     if (processedBuildingData && processedBuildingData.addresses.length > 0) {
@@ -138,7 +535,7 @@ export const createZone = async (req: AuthRequest, res: Response) => {
 // Get all zones with pagination and filtering
 export const listZones = async (req: AuthRequest, res: Response) => {
   try {
-    const { page, limit, teamId, status } = req.query;
+    const { page, limit, teamId, status, showAll } = req.query;
     
     // Check if this is a request for all zones (no pagination parameters)
     const isListAll = !page && !limit;
@@ -148,7 +545,8 @@ export const listZones = async (req: AuthRequest, res: Response) => {
     if (status) filter.status = status;
 
     // If user is not superadmin, only show zones for their team
-    if (req.user?.role !== 'SUPERADMIN') {
+    // UNLESS this is a request to show all territories (like in edit page)
+    if (req.user?.role !== 'SUPERADMIN' && !showAll) {
       filter.teamId = req.user?.primaryTeamId;
     }
 
@@ -180,7 +578,7 @@ export const listZones = async (req: AuthRequest, res: Response) => {
     const zonesWithAssignments = await Promise.all(
       zones.map(async (zone) => {
         // Get active assignments
-        const activeAssignment = await AgentZoneAssignment.findOne({
+        const activeAssignments = await AgentZoneAssignment.find({
           zoneId: zone._id,
           status: { $nin: ['COMPLETED', 'CANCELLED'] },
           effectiveTo: null
@@ -192,8 +590,28 @@ export const listZones = async (req: AuthRequest, res: Response) => {
           status: 'PENDING'
         }).populate('agentId', 'name email').populate('teamId', 'name');
 
-        // Use active assignment if available, otherwise use scheduled assignment
-        const currentAssignment = activeAssignment || scheduledAssignment;
+        // Determine current assignment - prioritize team assignments over individual
+        let currentAssignment = null;
+        if (activeAssignments.length > 0) {
+          // If there are multiple assignments (team assignment), find the one with teamId
+          const teamAssignment = activeAssignments.find(assignment => assignment.teamId);
+          if (teamAssignment) {
+            // For team assignments, return a representative assignment with teamId but no specific agentId
+            currentAssignment = {
+              _id: teamAssignment._id,
+              agentId: null, // Don't show specific agent for team assignments
+              teamId: teamAssignment.teamId,
+              effectiveFrom: teamAssignment.effectiveFrom,
+              effectiveTo: teamAssignment.effectiveTo,
+              status: teamAssignment.status
+            };
+          } else {
+            // Individual assignment
+            currentAssignment = activeAssignments[0];
+          }
+        } else if (scheduledAssignment) {
+          currentAssignment = scheduledAssignment;
+        }
 
         // Get zone statistics
         const totalResidents = await Resident.countDocuments({ zoneId: zone._id });
@@ -217,10 +635,30 @@ export const listZones = async (req: AuthRequest, res: Response) => {
         const zoneData = zone.toObject();
         const lastActivityDate = lastActivity ? (lastActivity as any).createdAt : new Date();
 
-        // Calculate zone status based on assignments
+        // Calculate zone status based on assignments and completion
         let calculatedStatus = 'DRAFT'; // Default to DRAFT
         
-        if (currentAssignment) {
+        // Check if zone is completed (all houses visited)
+        if (zone.buildingData?.houseStatuses) {
+          const houseStatuses = Array.from(zone.buildingData.houseStatuses.values());
+          const totalHouses = houseStatuses.length;
+          const visitedHouses = houseStatuses.filter(house => house.status !== 'not-visited').length;
+          
+          // If all houses have been visited (not 'not-visited'), mark as COMPLETED
+          if (totalHouses > 0 && visitedHouses === totalHouses) {
+            calculatedStatus = 'COMPLETED';
+          } else if (currentAssignment) {
+            // Check if it's a scheduled assignment (future date)
+            const assignmentDate = new Date(currentAssignment.effectiveFrom);
+            const now = new Date();
+            
+            if (assignmentDate > now) {
+              calculatedStatus = 'SCHEDULED';
+            } else {
+              calculatedStatus = 'ACTIVE';
+            }
+          }
+        } else if (currentAssignment) {
           // Check if it's a scheduled assignment (future date)
           const assignmentDate = new Date(currentAssignment.effectiveFrom);
           const now = new Date();
@@ -334,9 +772,12 @@ export const checkZoneOverlapBeforeCreate = async (req: AuthRequest, res: Respon
 export const getZoneById = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
+    console.log('getZoneById called with id:', id);
+    console.log('User:', req.user?.id, 'Role:', req.user?.role, 'PrimaryTeamId:', req.user?.primaryTeamId);
 
     const zone = await Zone.findById(id)
       .populate('teamId', 'name')
+      .populate('assignedAgentId', 'name email')
       .populate('createdBy', 'name email');
 
     if (!zone) {
@@ -347,16 +788,113 @@ export const getZoneById = async (req: AuthRequest, res: Response) => {
     }
 
     // Check if user has access to this zone
-    if (req.user?.role !== 'SUPERADMIN' && zone.teamId?.toString() !== req.user?.primaryTeamId) {
+    // Allow access if user is SUPERADMIN, or if zone was created by the user, or if zone is assigned to user's team
+    // Also allow access if user is SUBADMIN and zone is in DRAFT status (unassigned)
+    if (req.user?.role !== 'SUPERADMIN' && 
+        zone.createdBy?.toString() !== req.user?.id && 
+        zone.teamId?.toString() !== req.user?.primaryTeamId &&
+        !(req.user?.role === 'SUBADMIN' && zone.status === 'DRAFT')) {
       return res.status(403).json({
         success: false,
         message: 'Access denied to this zone'
       });
     }
 
+    // Get active assignments (same logic as listZones)
+    const activeAssignments = await AgentZoneAssignment.find({
+      zoneId: id,
+      status: { $nin: ['COMPLETED', 'CANCELLED'] },
+      effectiveTo: null
+    }).populate('agentId', 'name email').populate('teamId', 'name');
+
+    // Get scheduled assignments
+    const scheduledAssignment = await ScheduledAssignment.findOne({
+      zoneId: id,
+      status: 'PENDING'
+    }).populate('agentId', 'name email').populate('teamId', 'name');
+
+    // Determine current assignment - prioritize team assignments over individual
+    let currentAssignment = null;
+    if (activeAssignments.length > 0) {
+      // If there are multiple assignments (team assignment), find the one with teamId
+      const teamAssignment = activeAssignments.find(assignment => assignment.teamId);
+      if (teamAssignment) {
+        // For team assignments, return a representative assignment with teamId but no specific agentId
+        currentAssignment = {
+          _id: teamAssignment._id,
+          agentId: null, // Don't show specific agent for team assignments
+          teamId: teamAssignment.teamId,
+          effectiveFrom: teamAssignment.effectiveFrom,
+          effectiveTo: teamAssignment.effectiveTo,
+          status: teamAssignment.status
+        };
+      } else {
+        // Individual assignment
+        currentAssignment = activeAssignments[0];
+      }
+    } else if (scheduledAssignment) {
+      currentAssignment = scheduledAssignment;
+    }
+
+    // Calculate zone status based on assignments and completion (same logic as listZones)
+    let calculatedStatus = 'DRAFT'; // Default to DRAFT
+    
+    // Check if zone is completed (all houses visited)
+    if (zone.buildingData?.houseStatuses) {
+      const houseStatuses = Array.from(zone.buildingData.houseStatuses.values());
+      const totalHouses = houseStatuses.length;
+      const visitedHouses = houseStatuses.filter(house => house.status !== 'not-visited').length;
+      
+      // If all houses have been visited (not 'not-visited'), mark as COMPLETED
+      if (totalHouses > 0 && visitedHouses === totalHouses) {
+        calculatedStatus = 'COMPLETED';
+      } else if (currentAssignment) {
+        // Check if it's a scheduled assignment (future date)
+        const assignmentDate = new Date(currentAssignment.effectiveFrom);
+        const now = new Date();
+        
+        if (assignmentDate > now) {
+          calculatedStatus = 'SCHEDULED';
+        } else {
+          calculatedStatus = 'ACTIVE';
+        }
+      }
+    } else if (currentAssignment) {
+      // Check if it's a scheduled assignment (future date)
+      const assignmentDate = new Date(currentAssignment.effectiveFrom);
+      const now = new Date();
+      
+      if (assignmentDate > now) {
+        calculatedStatus = 'SCHEDULED';
+      } else {
+        calculatedStatus = 'ACTIVE';
+      }
+    }
+
+    // Get zone statistics (same as listZones)
+    const totalResidents = await Resident.countDocuments({ zoneId: id });
+    const activeResidents = await Resident.countDocuments({ 
+      zoneId: id, 
+      status: { $in: ['interested', 'visited', 'callback', 'appointment', 'follow-up'] }
+    });
+
+    // Add current assignment and calculated status to zone data
+    const zoneData: any = zone.toObject();
+    zoneData.status = calculatedStatus; // Use calculated status instead of stored status
+    zoneData.currentAssignment = currentAssignment ? {
+      _id: currentAssignment._id,
+      agentId: currentAssignment.agentId,
+      teamId: currentAssignment.teamId,
+      effectiveFrom: currentAssignment.effectiveFrom,
+      effectiveTo: 'effectiveTo' in currentAssignment ? currentAssignment.effectiveTo || null : null,
+      status: currentAssignment.status
+    } : null;
+    zoneData.totalResidents = totalResidents;
+    zoneData.activeResidents = activeResidents;
+
     res.json({
       success: true,
-      data: zone
+      data: zoneData
     });
   } catch (error) {
     console.error('Error getting zone:', error);
@@ -372,7 +910,7 @@ export const getZoneById = async (req: AuthRequest, res: Response) => {
 export const updateZone = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const { name, description, boundary, status } = req.body;
+    const { name, description, boundary, buildingData, status, assignedAgentId, teamId, effectiveFrom, removeAssignment } = req.body;
 
     const zone = await Zone.findById(id);
     if (!zone) {
@@ -401,17 +939,390 @@ export const updateZone = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    const updatedZone = await Zone.findByIdAndUpdate(
-      id,
-      { name, description, boundary, status },
-      { new: true, runValidators: true }
-    ).populate('teamId', 'name');
+    // Start a transaction for assignment updates
+    const session = await mongoose.startSession();
+    session.startTransaction();
 
-    res.json({
-      success: true,
-      message: 'Zone updated successfully',
-      data: updatedZone
-    });
+    try {
+      // Update zone basic properties
+      const updateData: any = { name, description, boundary, status };
+      
+      // Process building data if provided (same logic as createZone)
+      if (buildingData && buildingData.addresses && buildingData.coordinates) {
+        const processedBuildingData = processBuildingData(
+          buildingData.addresses,
+          buildingData.coordinates
+        );
+        
+        // Check for duplicate buildings across all zones (excluding current zone)
+        const duplicateAddresses = await checkDuplicateBuildings(processedBuildingData.addresses);
+        const filteredDuplicates = duplicateAddresses.filter(addr => {
+          // Check if this address belongs to the current zone
+          return !zone.buildingData?.addresses?.includes(addr);
+        });
+        
+        if (filteredDuplicates.length > 0) {
+          return res.status(409).json({
+            success: false,
+            message: `${filteredDuplicates.length} buildings are already assigned to other territories`,
+            data: {
+              duplicateAddresses: filteredDuplicates,
+              duplicateCount: filteredDuplicates.length
+            }
+          });
+        }
+        
+        updateData.buildingData = processedBuildingData;
+        
+        // Delete existing residents for this zone and create new ones
+        await Resident.deleteMany({ zoneId: id }, { session });
+        
+        // Create new residents if building data is provided
+        if (processedBuildingData && processedBuildingData.addresses.length > 0) {
+          const residents = processedBuildingData.addresses.map((address, index) => {
+            const coordinates = processedBuildingData.coordinates[index];
+            const houseNumber = extractHouseNumber(address);
+            
+            return new Resident({
+              zoneId: id,
+              address,
+              coordinates,
+              houseNumber,
+              status: 'not-visited',
+              createdAt: new Date(),
+              updatedAt: new Date(),
+            });
+          });
+
+          await Resident.insertMany(residents, { session });
+        }
+      }
+
+      // 1. Deactivate existing assignments for this zone
+      await AgentZoneAssignment.updateMany(
+        { zoneId: id, status: 'ACTIVE' },
+        { status: 'INACTIVE', effectiveTo: new Date() },
+        { session }
+      );
+
+      // Cancel any pending scheduled assignments for this zone
+      await ScheduledAssignment.updateMany(
+        { zoneId: id, status: 'PENDING' },
+        { status: 'CANCELLED' },
+        { session }
+      );
+
+      // Handle assignment updates
+      if (removeAssignment) {
+        // 2. Remove all assignments - set to DRAFT status
+        updateData.assignedAgentId = null;
+        updateData.teamId = null;
+        updateData.status = 'DRAFT';
+        
+        // 3. Remove zone from all users who were assigned to this zone
+        await User.updateMany(
+          { $or: [{ primaryZoneId: id }, { zoneIds: id }] },
+          { 
+            $unset: { primaryZoneId: 1 },
+            $pull: { zoneIds: id }
+          },
+          { session }
+        );
+        
+             } else if (assignedAgentId) {
+         // 2. Validate agent exists
+         const agent = await User.findById(assignedAgentId);
+         if (!agent || agent.role !== 'AGENT') {
+           throw new Error('Agent not found or is not an agent');
+         }
+
+         // 3. Check if this is a future assignment or immediate assignment
+         const effectiveDate = effectiveFrom ? new Date(effectiveFrom) : new Date();
+         const now = new Date();
+         const isFutureAssignment = effectiveDate > now;
+
+                   if (isFutureAssignment) {
+            // Create scheduled assignment for future date
+            const scheduledAssignmentData = {
+              agentId: assignedAgentId,
+              zoneId: id,
+              assignedBy: req.user?.id,
+              scheduledDate: effectiveDate, // Add the required scheduledDate field
+              effectiveFrom: effectiveDate,
+              status: 'PENDING' as const
+            };
+
+            await ScheduledAssignment.create(scheduledAssignmentData);
+           
+           // Update zone status to SCHEDULED
+           updateData.assignedAgentId = assignedAgentId;
+           updateData.teamId = null;
+           updateData.status = 'SCHEDULED';
+         } else {
+           // Create immediate assignment
+           const assignmentData = {
+             agentId: assignedAgentId,
+             zoneId: id,
+             assignedBy: req.user?.id,
+             effectiveFrom: effectiveDate,
+             status: 'ACTIVE' as const
+           };
+
+           await AgentZoneAssignment.create(assignmentData);
+           
+           // Update zone status to ACTIVE if it was in DRAFT
+           if (zone.status === 'DRAFT') {
+             updateData.assignedAgentId = assignedAgentId;
+             updateData.teamId = null;
+             updateData.status = 'ACTIVE';
+           }
+         }
+
+         // 5. Update user fields (same as createAssignment)
+         await User.findByIdAndUpdate(assignedAgentId, {
+           primaryZoneId: id,
+           $addToSet: { zoneIds: id }
+         }, { session });
+         
+       } else if (teamId) {
+         // 2. Validate team exists
+         const team = await Team.findById(teamId);
+         if (!team) {
+           throw new Error('Team not found');
+         }
+
+         // 3. Check if this is a future assignment or immediate assignment
+         const effectiveDate = effectiveFrom ? new Date(effectiveFrom) : new Date();
+         const now = new Date();
+         const isFutureAssignment = effectiveDate > now;
+
+         if (isFutureAssignment) {
+           // Create scheduled assignment for future date
+           const scheduledAssignmentData = {
+             teamId: teamId,
+             zoneId: id,
+             assignedBy: req.user?.id,
+             scheduledDate: effectiveDate,
+             effectiveFrom: effectiveDate,
+             status: 'PENDING' as const
+           };
+
+           await ScheduledAssignment.create(scheduledAssignmentData);
+           
+           // Update zone status to SCHEDULED
+           updateData.teamId = teamId;
+           updateData.assignedAgentId = null;
+           updateData.status = 'SCHEDULED';
+         } else {
+           // Create immediate team assignments for all team members
+           if (team.agentIds && team.agentIds.length > 0) {
+             const teamAssignments = team.agentIds.map((agentId) => ({
+               agentId,
+               teamId,
+               zoneId: id,
+               effectiveFrom: effectiveDate,
+               status: 'ACTIVE',
+               assignedBy: req.user?.id
+             }));
+             await AgentZoneAssignment.insertMany(teamAssignments, { session });
+
+             // Update user fields for all team members
+             await User.updateMany(
+               { _id: { $in: team.agentIds } },
+               {
+                 primaryZoneId: id,
+                 $addToSet: { zoneIds: id }
+               },
+               { session }
+             );
+           }
+
+           // Update zone fields
+           updateData.teamId = teamId;
+           updateData.assignedAgentId = null;
+           updateData.status = 'ACTIVE';
+         }
+       }
+
+      // 7. Update zone
+      const updatedZone = await Zone.findByIdAndUpdate(
+        id,
+        updateData,
+        { new: true, runValidators: true, session }
+      ).populate('teamId', 'name').populate('assignedAgentId', 'name email');
+
+                          // 8. Sync all related data and recalculate statuses (same logic as createAssignment)
+        if (assignedAgentId) {
+          // Update individual agent status and zone fields (same as createAssignment)
+          await updateAgentStatus(assignedAgentId, session);
+          
+          // Update agent's primaryZoneId (same as createAssignment)
+          const agent = await User.findById(assignedAgentId);
+          if (agent) {
+            const updateData: any = {};
+            
+            // Always set latest assignment as primary for individual agents (same as createAssignment)
+            updateData.primaryZoneId = id;
+            
+            // Update agent with new primary zone (same as createAssignment)
+            await User.findByIdAndUpdate(assignedAgentId, updateData, { session });
+            
+            // Sync zoneIds with all current assignments (same as createAssignment)
+            await syncAgentZoneIds(assignedAgentId, session);
+          }
+          
+          // Update assignment status for the assigned agent
+          await updateUserAssignmentStatus(assignedAgentId, session);
+        } else if (teamId) {
+          // Update team status if this is a team assignment (same as createAssignment)
+          await updateTeamStatus(teamId, session);
+          await updateTeamAssignmentStatus(teamId, session);
+          
+          // Update individual agent statuses and zone fields for all team members (same as createAssignment)
+          const team = await Team.findById(teamId);
+          if (team && team.agentIds) {
+            for (const agentId of team.agentIds) {
+              await updateAgentStatus(agentId.toString(), session);
+              
+              // Update agent's zone fields (same as createAssignment)
+              const agent = await User.findById(agentId);
+              if (agent) {
+                const updateData: any = {};
+                
+                // Always set latest team assignment as primary for team members (same as createAssignment)
+                updateData.primaryZoneId = id;
+                
+                // Update agent with new primary zone (same as createAssignment)
+                await User.findByIdAndUpdate(agentId, updateData, { session });
+                
+                // Sync zoneIds with all current assignments (same as createAssignment)
+                await syncAgentZoneIds(agentId.toString(), session);
+              }
+              
+                           // Sync agent zoneIds and update assignment status for each team member
+             await syncAgentZoneIds(agentId.toString(), session);
+             await updateUserAssignmentStatus(agentId.toString(), session);
+            }
+          }
+        } else if (removeAssignment) {
+          // Update statuses for all users who were previously assigned to this zone
+          const previouslyAssignedUsers = await User.find({
+            $or: [{ primaryZoneId: id }, { zoneIds: id }]
+          });
+          
+          for (const user of previouslyAssignedUsers) {
+            await syncAgentZoneIds((user._id as any).toString(), session);
+            await updateAgentStatus((user._id as any).toString(), session);
+            await updateUserAssignmentStatus((user._id as any).toString(), session);
+          }
+        }
+
+      await session.commitTransaction();
+
+      // Get the updated zone with proper population and calculated data (same as getZoneById)
+      const finalZone = await Zone.findById(id)
+        .populate('teamId', 'name')
+        .populate('assignedAgentId', 'name email')
+        .populate('createdBy', 'name email');
+
+      if (!finalZone) {
+        throw new Error('Zone not found after update');
+      }
+
+      // Get active assignments (same logic as getZoneById)
+      const activeAssignments = await AgentZoneAssignment.find({
+        zoneId: id,
+        status: { $nin: ['COMPLETED', 'CANCELLED'] },
+        effectiveTo: null
+      }).populate('agentId', 'name email').populate('teamId', 'name');
+
+      // Get scheduled assignments
+      const scheduledAssignment = await ScheduledAssignment.findOne({
+        zoneId: id,
+        status: 'PENDING'
+      }).populate('agentId', 'name email').populate('teamId', 'name');
+
+      // Determine current assignment - prioritize team assignments over individual
+      let currentAssignment = null;
+      if (activeAssignments.length > 0) {
+        // If there are multiple assignments (team assignment), find the one with teamId
+        const teamAssignment = activeAssignments.find(assignment => assignment.teamId);
+        if (teamAssignment) {
+          // For team assignments, return a representative assignment with teamId but no specific agentId
+          currentAssignment = {
+            _id: teamAssignment._id,
+            agentId: null, // Don't show specific agent for team assignments
+            teamId: teamAssignment.teamId,
+            effectiveFrom: teamAssignment.effectiveFrom,
+            effectiveTo: teamAssignment.effectiveTo,
+            status: teamAssignment.status
+          };
+        } else {
+          // Individual assignment
+          currentAssignment = activeAssignments[0];
+        }
+      } else if (scheduledAssignment) {
+        currentAssignment = scheduledAssignment;
+      }
+
+      // Calculate zone status based on assignments and completion (same logic as getZoneById)
+      let calculatedStatus = 'DRAFT'; // Default to DRAFT
+      
+      // Check if zone is completed (all houses visited)
+      if (finalZone.buildingData?.houseStatuses) {
+        const houseStatuses = Array.from(finalZone.buildingData.houseStatuses.values());
+        const totalHouses = houseStatuses.length;
+        const visitedHouses = houseStatuses.filter(house => house.status !== 'not-visited').length;
+        
+        // If all houses have been visited (not 'not-visited'), mark as COMPLETED
+        if (totalHouses > 0 && visitedHouses === totalHouses) {
+          calculatedStatus = 'COMPLETED';
+        } else if (currentAssignment) {
+          // Check if it's a scheduled assignment (future date)
+          const assignmentDate = new Date(currentAssignment.effectiveFrom);
+          const now = new Date();
+          
+          if (assignmentDate > now) {
+            calculatedStatus = 'SCHEDULED';
+          } else {
+            calculatedStatus = 'ACTIVE';
+          }
+        }
+      } else if (currentAssignment) {
+        // Check if it's a scheduled assignment (future date)
+        const assignmentDate = new Date(currentAssignment.effectiveFrom);
+        const now = new Date();
+        
+        if (assignmentDate > now) {
+          calculatedStatus = 'SCHEDULED';
+        } else {
+          calculatedStatus = 'ACTIVE';
+        }
+      }
+
+      // Add current assignment and calculated status to zone data (same as getZoneById)
+      const zoneData: any = finalZone.toObject();
+      zoneData.status = calculatedStatus; // Use calculated status instead of stored status
+      zoneData.currentAssignment = currentAssignment ? {
+        _id: currentAssignment._id,
+        agentId: currentAssignment.agentId,
+        teamId: currentAssignment.teamId,
+        effectiveFrom: currentAssignment.effectiveFrom,
+        effectiveTo: 'effectiveTo' in currentAssignment ? currentAssignment.effectiveTo || null : null,
+        status: currentAssignment.status
+      } : null;
+
+      res.json({
+        success: true,
+        message: 'Zone updated successfully',
+        data: zoneData
+      });
+    } catch (error) {
+      await session.abortTransaction();
+      throw error;
+    } finally {
+      session.endSession();
+    }
   } catch (error) {
     console.error('Error updating zone:', error);
     res.status(500).json({
@@ -425,7 +1336,9 @@ export const updateZone = async (req: AuthRequest, res: Response) => {
 // Delete zone
 export const deleteZone = async (req: AuthRequest, res: Response) => {
   try {
+    console.log('🗑️ deleteZone: Starting zone deletion...');
     const { id } = req.params;
+    console.log('🗑️ deleteZone: Zone ID to delete:', id);
 
     const zone = await Zone.findById(id);
     if (!zone) {
@@ -436,7 +1349,12 @@ export const deleteZone = async (req: AuthRequest, res: Response) => {
     }
 
     // Check permissions
-    if (req.user?.role !== 'SUPERADMIN' && zone.teamId?.toString() !== req.user?.primaryTeamId) {
+    // Allow deletion if user is SUPERADMIN, or if zone was created by the user, or if zone is assigned to user's team
+    // Also allow deletion if user is SUBADMIN and zone is in DRAFT status (unassigned)
+    if (req.user?.role !== 'SUPERADMIN' && 
+        zone.createdBy?.toString() !== req.user?.id && 
+        zone.teamId?.toString() !== req.user?.primaryTeamId &&
+        !(req.user?.role === 'SUBADMIN' && zone.status === 'DRAFT')) {
       return res.status(403).json({
         success: false,
         message: 'Access denied to delete this zone'
@@ -448,41 +1366,112 @@ export const deleteZone = async (req: AuthRequest, res: Response) => {
       zoneId: id,
       status: 'ACTIVE'
     });
+    console.log('📋 deleteZone: Found', activeAssignments.length, 'active assignments');
+
+    // Get all assignments for this zone (active and inactive) to track affected users/teams
+    const allZoneAssignments = await AgentZoneAssignment.find({
+      zoneId: id
+    }).populate('agentId teamId');
+    console.log('📋 deleteZone: Found', allZoneAssignments.length, 'total assignments');
+
+    // Get scheduled assignments for this zone to track affected users/teams
+    const scheduledAssignments = await ScheduledAssignment.find({
+      zoneId: id
+    }).populate('agentId teamId');
+    console.log('📋 deleteZone: Found', scheduledAssignments.length, 'scheduled assignments');
+
+    // Collect unique agent IDs and team IDs that will be affected
+    const affectedAgentIds = new Set();
+    const affectedTeamIds = new Set();
+
+    allZoneAssignments.forEach(assignment => {
+      if (assignment.agentId) {
+        // Handle both populated objects and ObjectIds
+        const agentId = typeof assignment.agentId === 'object' && assignment.agentId._id 
+          ? assignment.agentId._id.toString() 
+          : assignment.agentId.toString();
+        affectedAgentIds.add(agentId);
+      }
+      if (assignment.teamId) {
+        // Handle both populated objects and ObjectIds
+        const teamId = typeof assignment.teamId === 'object' && assignment.teamId._id 
+          ? assignment.teamId._id.toString() 
+          : assignment.teamId.toString();
+        affectedTeamIds.add(teamId);
+      }
+    });
+
+    // Also collect from scheduled assignments
+    scheduledAssignments.forEach(assignment => {
+      if (assignment.agentId) {
+        // Handle both populated objects and ObjectIds
+        const agentId = typeof assignment.agentId === 'object' && assignment.agentId._id 
+          ? assignment.agentId._id.toString() 
+          : assignment.agentId.toString();
+        affectedAgentIds.add(agentId);
+      }
+      if (assignment.teamId) {
+        // Handle both populated objects and ObjectIds
+        const teamId = typeof assignment.teamId === 'object' && assignment.teamId._id 
+          ? assignment.teamId._id.toString() 
+          : assignment.teamId.toString();
+        affectedTeamIds.add(teamId);
+      }
+    });
+
+    console.log('👥 deleteZone: Affected agent IDs:', Array.from(affectedAgentIds));
+    console.log('👥 deleteZone: Affected team IDs:', Array.from(affectedTeamIds));
+    
+    // Log the actual team objects for debugging
+    if (scheduledAssignments.length > 0) {
+      console.log('🔍 deleteZone: Scheduled assignment teamId types:');
+      scheduledAssignments.forEach((assignment, index) => {
+        console.log(`  Assignment ${index}:`, {
+          teamId: assignment.teamId,
+          teamIdType: typeof assignment.teamId,
+          hasId: assignment.teamId && typeof assignment.teamId === 'object' && '_id' in assignment.teamId
+        });
+      });
+    }
 
     // Start a database transaction to ensure all deletions are atomic
     const session = await mongoose.startSession();
     session.startTransaction();
+    console.log('🔄 deleteZone: Started database transaction');
 
     try {
       // Delete all associated data in the correct order to avoid foreign key constraint issues
       
-      // 1. Deactivate all agent zone assignments for this zone
-      await AgentZoneAssignment.updateMany(
-        { zoneId: id },
-        { 
-          status: 'INACTIVE',
-          endDate: new Date()
-        },
-        { session }
-      );
+      // 1. Delete all agent zone assignments for this zone (not just deactivate)
+      const deletedZoneAssignments = await AgentZoneAssignment.deleteMany({ zoneId: id }, { session });
+      console.log(`Deleted ${deletedZoneAssignments.deletedCount} agent zone assignments`);
       
-      // 2. Delete all scheduled assignments
-      await ScheduledAssignment.deleteMany({ zoneId: id }, { session });
+      // 2. Agent team assignments are not zone-specific, so we don't delete them here
+      // AgentTeamAssignment tracks team membership, not zone assignments
       
-      // 3. Delete all properties in this zone
-      await Property.deleteMany({ zoneId: id }, { session });
+      // 3. Delete all scheduled assignments
+      const deletedScheduled = await ScheduledAssignment.deleteMany({ zoneId: id }, { session });
+      console.log(`Deleted ${deletedScheduled.deletedCount} scheduled assignments`);
       
-      // 4. Delete all leads in this zone
-      await Lead.deleteMany({ zoneId: id }, { session });
+      // 4. Delete all properties in this zone
+      const deletedProperties = await Property.deleteMany({ zoneId: id }, { session });
+      console.log(`Deleted ${deletedProperties.deletedCount} properties`);
       
-      // 5. Delete all activities in this zone
-      await Activity.deleteMany({ zoneId: id }, { session });
+      // 5. Delete all leads in this zone
+      const deletedLeads = await Lead.deleteMany({ zoneId: id }, { session });
+      console.log(`Deleted ${deletedLeads.deletedCount} leads`);
       
-      // 6. Delete all routes in this zone
-      await Route.deleteMany({ zoneId: id }, { session });
+      // 6. Delete all activities in this zone
+      const deletedActivities = await Activity.deleteMany({ zoneId: id }, { session });
+      console.log(`Deleted ${deletedActivities.deletedCount} activities`);
       
-      // 7. Delete all residents in this zone
-      await Resident.deleteMany({ zoneId: id }, { session });
+      // 7. Delete all routes in this zone
+      const deletedRoutes = await Route.deleteMany({ zoneId: id }, { session });
+      console.log(`Deleted ${deletedRoutes.deletedCount} routes`);
+      
+      // 8. Delete all residents in this zone (CRITICAL - must be deleted)
+      const deletedResidents = await Resident.deleteMany({ zoneId: id }, { session });
+      console.log(`Deleted ${deletedResidents.deletedCount} residents for zone ${id}`);
       
       // 8. Update users to remove zone references
       // Remove primaryZoneId if it matches this zone
@@ -499,16 +1488,49 @@ export const deleteZone = async (req: AuthRequest, res: Response) => {
         { session }
       );
       
-      // 8. Finally, delete the zone itself
+      // 9. Finally, delete the zone itself
       await Zone.findByIdAndDelete(id, { session });
 
       // Commit the transaction
       await session.commitTransaction();
+      console.log('✅ deleteZone: Database transaction committed successfully');
+
+      // After successful deletion, update assignment status for affected users and teams
+      // This is done outside the transaction to avoid long-running transactions
+      console.log('🔄 deleteZone: Starting status updates for affected users and teams...');
+      
+      // Update assignment status for affected agents
+      for (const agentId of affectedAgentIds) {
+        console.log('👤 deleteZone: Updating assignment status for agent:', agentId);
+        await updateUserAssignmentStatus(agentId as string);
+      }
+
+      // Update assignment status for affected teams
+      for (const teamId of affectedTeamIds) {
+        console.log('👥 deleteZone: Updating assignment status for team:', teamId);
+        await updateTeamAssignmentStatus(teamId as string);
+        console.log('👥 deleteZone: Updating status for team:', teamId);
+        await updateTeamStatus(teamId as string);
+        
+        // Also update assignment status for all team members
+        console.log('👥 deleteZone: Fetching team to update member statuses...');
+        const team = await Team.findById(teamId);
+        if (team && team.agentIds && team.agentIds.length > 0) {
+          console.log(`👥 deleteZone: Found ${team.agentIds.length} team members to update`);
+          for (const agentId of team.agentIds) {
+            console.log(`👤 deleteZone: Updating assignment status for team member: ${agentId}`);
+            await updateUserAssignmentStatus(agentId.toString());
+          }
+          console.log('✅ deleteZone: All team members assignment status updated');
+        } else {
+          console.log('⚠️ deleteZone: No team members found to update');
+        }
+      }
       
       // Prepare response message based on whether there were active assignments
       let message = 'Zone and all associated residential data deleted successfully';
       if (activeAssignments.length > 0) {
-        message = `Zone and all residential data deleted successfully. ${activeAssignments.length} active assignment(s) were automatically deactivated.`;
+        message = `Zone and all residential data deleted successfully. ${activeAssignments.length} active assignment(s) were automatically deleted.`;
       }
       
       res.json({
@@ -1022,17 +2044,29 @@ export const assignTeamToZone = async (req: AuthRequest, res: Response) => {
       { new: true }
     ).populate('teamId', 'name');
 
-    // Create team assignment records for all agents in the team
+    // Create zone assignment records for all agents in the team
+    // Note: AgentTeamAssignment records should already exist for team members
+    // Here we only create AgentZoneAssignment records (agent-to-zone relationships)
     if (team.agentIds && team.agentIds.length > 0) {
-      const teamAssignments = team.agentIds.map((agentId) => ({
+      const zoneAssignments = team.agentIds.map((agentId) => ({
         agentId,
         teamId,
+        zoneId: zoneId,
         effectiveFrom: effectiveDate || new Date(),
         status: 'ACTIVE',
         assignedBy: req.user?.id
       }));
 
-      await AgentTeamAssignment.insertMany(teamAssignments);
+      await AgentZoneAssignment.insertMany(zoneAssignments);
+      
+      // Update user fields for all team members
+      await User.updateMany(
+        { _id: { $in: team.agentIds } },
+        {
+          primaryZoneId: zoneId,
+          $addToSet: { zoneIds: zoneId }
+        }
+      );
     }
 
     res.status(200).json({
@@ -1225,6 +2259,183 @@ export const getTerritoryOverviewStats = async (req: AuthRequest, res: Response)
     res.status(500).json({
       success: false,
       message: 'Failed to get territory overview statistics',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Get building statistics by odd/even numbers for a specific zone
+export const getZoneBuildingStats = async (req: AuthRequest, res: Response) => {
+  try {
+    const { zoneId } = req.params;
+    const userId = req.user?._id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'User not authenticated'
+      });
+    }
+
+    // Validate zone ID
+    if (!mongoose.Types.ObjectId.isValid(zoneId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid zone ID'
+      });
+    }
+
+    // Get the zone with building data
+    const zone = await Zone.findById(zoneId).select('name buildingData');
+    
+    if (!zone) {
+      return res.status(404).json({
+        success: false,
+        message: 'Zone not found'
+      });
+    }
+
+    // Check if user has access to this zone
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Check permissions (user can access if they created it or are assigned to it)
+    const canAccess = 
+      zone.createdBy?.toString() === userId.toString() ||
+      zone.assignedAgentId?.toString() === userId.toString() ||
+      (user.teamIds && user.teamIds.includes(zone.teamId as any));
+
+    if (!canAccess && user.role !== 'SUPERADMIN') {
+      return res.status(403).json({
+        success: false,
+        message: 'Access denied to this zone'
+      });
+    }
+
+    // Extract building statistics
+    const buildingStats = {
+      zoneName: zone.name,
+      totalBuildings: zone.buildingData?.totalBuildings || 0,
+      residentialHomes: zone.buildingData?.residentialHomes || 0,
+      oddBuildings: {
+        count: zone.buildingData?.houseNumbers?.odd?.length || 0,
+        numbers: zone.buildingData?.houseNumbers?.odd || [],
+        range: zone.buildingData?.houseNumbers?.odd?.length > 0 ? {
+          min: Math.min(...(zone.buildingData.houseNumbers.odd || [])),
+          max: Math.max(...(zone.buildingData.houseNumbers.odd || []))
+        } : null
+      },
+      evenBuildings: {
+        count: zone.buildingData?.houseNumbers?.even?.length || 0,
+        numbers: zone.buildingData?.houseNumbers?.even || [],
+        range: zone.buildingData?.houseNumbers?.even?.length > 0 ? {
+          min: Math.min(...(zone.buildingData.houseNumbers.even || [])),
+          max: Math.max(...(zone.buildingData.houseNumbers.even || []))
+        } : null
+      },
+      addresses: zone.buildingData?.addresses || [],
+      coordinates: zone.buildingData?.coordinates || []
+    };
+
+    res.json({
+      success: true,
+      data: buildingStats
+    });
+  } catch (error) {
+    console.error('Error getting zone building stats:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get zone building statistics',
+      error: error instanceof Error ? error.message : 'Unknown error'
+    });
+  }
+};
+
+// Get all zones with building statistics summary
+export const getAllZonesBuildingStats = async (req: AuthRequest, res: Response) => {
+  try {
+    const userId = req.user?._id;
+
+    if (!userId) {
+      return res.status(401).json({
+        success: false,
+        message: 'User not authenticated'
+      });
+    }
+
+    // Get user to check permissions
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({
+        success: false,
+        message: 'User not found'
+      });
+    }
+
+    // Build filter based on user role
+    let filter: any = {};
+    
+    if (user.role === 'AGENT') {
+      // Agents can only see zones assigned to them
+      filter = {
+        $or: [
+          { assignedAgentId: userId },
+          { teamId: { $in: user.teamIds } }
+        ]
+      };
+    } else if (user.role === 'SUBADMIN') {
+      // Subadmins can see zones they created
+      filter = { createdBy: userId };
+    }
+    // SUPERADMIN can see all zones (no filter)
+
+    // Get zones with building data
+    const zones = await Zone.find(filter).select('name buildingData status');
+    
+    const zonesStats = zones.map(zone => ({
+      zoneId: zone._id,
+      zoneName: zone.name,
+      status: zone.status,
+      totalBuildings: zone.buildingData?.totalBuildings || 0,
+      oddCount: zone.buildingData?.houseNumbers?.odd?.length || 0,
+      evenCount: zone.buildingData?.houseNumbers?.even?.length || 0,
+      oddRange: zone.buildingData?.houseNumbers?.odd?.length > 0 ? {
+        min: Math.min(...(zone.buildingData.houseNumbers.odd || [])),
+        max: Math.max(...(zone.buildingData.houseNumbers.odd || []))
+      } : null,
+      evenRange: zone.buildingData?.houseNumbers?.even?.length > 0 ? {
+        min: Math.min(...(zone.buildingData.houseNumbers.even || [])),
+        max: Math.max(...(zone.buildingData.houseNumbers.even || []))
+      } : null
+    }));
+
+    // Calculate summary statistics
+    const summary = {
+      totalZones: zonesStats.length,
+      totalBuildings: zonesStats.reduce((sum, zone) => sum + zone.totalBuildings, 0),
+      totalOddBuildings: zonesStats.reduce((sum, zone) => sum + zone.oddCount, 0),
+      totalEvenBuildings: zonesStats.reduce((sum, zone) => sum + zone.evenCount, 0),
+      averageBuildingsPerZone: zonesStats.length > 0 ? 
+        Math.round(zonesStats.reduce((sum, zone) => sum + zone.totalBuildings, 0) / zonesStats.length) : 0
+    };
+
+    res.json({
+      success: true,
+      data: {
+        summary,
+        zones: zonesStats
+      }
+    });
+  } catch (error) {
+    console.error('Error getting all zones building stats:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to get zones building statistics',
       error: error instanceof Error ? error.message : 'Unknown error'
     });
   }

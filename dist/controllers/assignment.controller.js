@@ -15,6 +15,7 @@ const scheduledAssignmentService_1 = require("../services/scheduledAssignmentSer
 const Zone_1 = require("../models/Zone");
 const User_1 = require("../models/User");
 const Team_1 = require("../models/Team");
+const ScheduledAssignment_1 = require("../models/ScheduledAssignment");
 const user_controller_1 = require("../controllers/user.controller");
 // Helper function to sync agent's zoneIds with all current assignments
 const syncAgentZoneIds = async (agentId) => {
@@ -73,6 +74,78 @@ const updateTeamStatus = async (teamId) => {
     }
     catch (error) {
         console.error('Error updating team status:', error);
+    }
+};
+// Helper function to update team assignment status based on zone assignments
+const updateTeamAssignmentStatus = async (teamId) => {
+    try {
+        const team = await Team_1.Team.findById(teamId);
+        if (!team)
+            return;
+        // Check if team has any active zone assignments (exclude COMPLETED and CANCELLED)
+        const activeZoneAssignments = await AgentZoneAssignment_1.default.find({
+            teamId: teamId,
+            status: { $nin: ['COMPLETED', 'CANCELLED'] },
+            effectiveTo: null
+        });
+        // Check if team has any PENDING scheduled assignments
+        const scheduledAssignments = await ScheduledAssignment_1.ScheduledAssignment.find({
+            teamId: teamId,
+            status: 'PENDING'
+        });
+        // Team is ASSIGNED if it has any zone assignments (active or scheduled)
+        const hasZoneAssignment = activeZoneAssignments.length > 0 || scheduledAssignments.length > 0;
+        const newAssignmentStatus = hasZoneAssignment ? 'ASSIGNED' : 'UNASSIGNED';
+        if (newAssignmentStatus !== team.assignmentStatus) {
+            await Team_1.Team.findByIdAndUpdate(teamId, { assignmentStatus: newAssignmentStatus });
+            console.log(`Team ${team.name} (${teamId}) assignment status updated to ${newAssignmentStatus}`);
+        }
+    }
+    catch (error) {
+        console.error('Error updating team assignment status:', error);
+    }
+};
+// Helper function to update user assignment status based on zone assignments
+const updateUserAssignmentStatus = async (userId) => {
+    try {
+        const user = await User_1.User.findById(userId);
+        if (!user || user.role !== 'AGENT')
+            return;
+        // Check individual zone assignments (exclude COMPLETED and CANCELLED)
+        const individualZoneAssignments = await AgentZoneAssignment_1.default.find({
+            agentId: user._id,
+            status: { $nin: ['COMPLETED', 'CANCELLED'] },
+            effectiveTo: null
+        });
+        // Check team zone assignments (exclude COMPLETED and CANCELLED)
+        const teamZoneAssignments = await AgentZoneAssignment_1.default.find({
+            teamId: { $in: user.teamIds },
+            status: { $nin: ['COMPLETED', 'CANCELLED'] },
+            effectiveTo: null
+        });
+        // Check PENDING scheduled assignments (individual)
+        const pendingIndividualScheduledAssignments = await ScheduledAssignment_1.ScheduledAssignment.find({
+            agentId: user._id,
+            status: 'PENDING'
+        });
+        // Check PENDING scheduled assignments (team)
+        const pendingTeamScheduledAssignments = await ScheduledAssignment_1.ScheduledAssignment.find({
+            teamId: { $in: user.teamIds },
+            status: 'PENDING'
+        });
+        // User is ASSIGNED if they have any zone assignments (active or scheduled)
+        const hasZoneAssignment = individualZoneAssignments.length > 0 ||
+            teamZoneAssignments.length > 0 ||
+            pendingIndividualScheduledAssignments.length > 0 ||
+            pendingTeamScheduledAssignments.length > 0;
+        const newAssignmentStatus = hasZoneAssignment ? 'ASSIGNED' : 'UNASSIGNED';
+        if (newAssignmentStatus !== user.assignmentStatus) {
+            await User_1.User.findByIdAndUpdate(userId, { assignmentStatus: newAssignmentStatus });
+            console.log(`User ${user.name} (${userId}) assignment status updated to ${newAssignmentStatus}`);
+        }
+    }
+    catch (error) {
+        console.error('Error updating user assignment status:', error);
     }
 };
 async function createAssignment(req, res) {
@@ -146,9 +219,11 @@ async function createAssignment(req, res) {
             // Update agent/team status for scheduled assignments
             if (payload.agentId) {
                 await (0, user_controller_1.updateAgentStatus)(payload.agentId);
+                await updateUserAssignmentStatus(payload.agentId);
             }
             if (payload.teamId) {
                 await updateTeamStatus(payload.teamId);
+                await updateTeamAssignmentStatus(payload.teamId);
             }
             // Send scheduled assignment notifications
             // await ScheduledAssignmentService.sendScheduledAssignmentNotifications(scheduledAssignment);
@@ -183,6 +258,7 @@ async function createAssignment(req, res) {
             // Update team status if this is a team assignment
             if (payload.teamId) {
                 await updateTeamStatus(payload.teamId);
+                await updateTeamAssignmentStatus(payload.teamId);
                 // Update individual agent statuses and zone fields for all team members
                 const team = await Team_1.Team.findById(payload.teamId);
                 if (team && team.agentIds) {
@@ -199,6 +275,8 @@ async function createAssignment(req, res) {
                             // Sync zoneIds with all current assignments
                             await syncAgentZoneIds(agentId.toString());
                         }
+                        // Update assignment status for each team member
+                        await updateUserAssignmentStatus(agentId.toString());
                     }
                 }
             }
@@ -216,6 +294,8 @@ async function createAssignment(req, res) {
                     // Sync zoneIds with all current assignments
                     await syncAgentZoneIds(payload.agentId);
                 }
+                // Update assignment status for the individual agent
+                await updateUserAssignmentStatus(payload.agentId);
             }
             res.status(201).json({
                 success: true,

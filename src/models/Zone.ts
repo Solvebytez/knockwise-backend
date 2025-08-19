@@ -30,7 +30,7 @@ export interface IZone extends Document {
   };
   assignedAgentId?: mongoose.Types.ObjectId | null;
   teamId?: mongoose.Types.ObjectId | null;
-  status?: 'DRAFT' | 'ACTIVE' | 'INACTIVE';
+  status?: 'DRAFT' | 'ACTIVE' | 'INACTIVE' | 'SCHEDULED' | 'COMPLETED';
   createdBy?: mongoose.Types.ObjectId;
 }
 
@@ -67,7 +67,7 @@ const ZoneSchema = new Schema<IZone>(
     },
     assignedAgentId: { type: Schema.Types.ObjectId, ref: 'User', default: null, index: true },
     teamId: { type: Schema.Types.ObjectId, ref: 'Team', default: null, index: true },
-    status: { type: String, enum: ['DRAFT', 'ACTIVE', 'INACTIVE'], default: 'DRAFT', index: true },
+    status: { type: String, enum: ['DRAFT', 'ACTIVE', 'INACTIVE', 'SCHEDULED', 'COMPLETED'], default: 'DRAFT', index: true },
     createdBy: { type: Schema.Types.ObjectId, ref: 'User' },
   },
   { timestamps: true }

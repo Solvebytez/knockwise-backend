@@ -18,6 +18,8 @@ import {
   updateResidentStatus,
   getTerritoryOverviewStats,
   checkZoneOverlapBeforeCreate,
+  getZoneBuildingStats,
+  getAllZonesBuildingStats,
 } from '../controllers/zone.controller';
 import { validate } from '../utils/validator';
 import {
@@ -1438,6 +1440,203 @@ router.get(
 router.put(
   '/residents/:residentId',
   updateResidentStatus
+);
+
+/**
+ * @openapi
+ * /api/zones/{zoneId}/building-stats:
+ *   get:
+ *     summary: Get building statistics by odd/even numbers for a specific zone
+ *     tags: [Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: zoneId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: "507f1f77bcf86cd799439013"
+ *     responses:
+ *       200:
+ *         description: Building statistics retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     zoneName:
+ *                       type: string
+ *                       example: "Downtown District"
+ *                     totalBuildings:
+ *                       type: integer
+ *                       example: 25
+ *                     residentialHomes:
+ *                       type: integer
+ *                       example: 25
+ *                     oddBuildings:
+ *                       type: object
+ *                       properties:
+ *                         count:
+ *                           type: integer
+ *                           example: 13
+ *                         numbers:
+ *                           type: array
+ *                           items:
+ *                             type: integer
+ *                           example: [101, 103, 105, 107, 109, 111, 113, 115, 117, 119, 121, 123, 125]
+ *                         range:
+ *                           type: object
+ *                           properties:
+ *                             min:
+ *                               type: integer
+ *                               example: 101
+ *                             max:
+ *                               type: integer
+ *                               example: 125
+ *                     evenBuildings:
+ *                       type: object
+ *                       properties:
+ *                         count:
+ *                           type: integer
+ *                           example: 12
+ *                         numbers:
+ *                           type: array
+ *                           items:
+ *                             type: integer
+ *                           example: [100, 102, 104, 106, 108, 110, 112, 114, 116, 118, 120, 122]
+ *                         range:
+ *                           type: object
+ *                           properties:
+ *                             min:
+ *                               type: integer
+ *                               example: 100
+ *                             max:
+ *                               type: integer
+ *                               example: 122
+ *                     addresses:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       example: ["100 Main St", "101 Main St", "102 Main St"]
+ *                     coordinates:
+ *                       type: array
+ *                       items:
+ *                         type: array
+ *                         items:
+ *                           type: number
+ *                       example: [[-74.0060, 40.7128], [-74.0061, 40.7129], [-74.0062, 40.7130]]
+ *       404:
+ *         description: Zone not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Zone not found"
+ */
+router.get(
+  '/:zoneId/building-stats',
+  validate(getZoneByIdValidation),
+  getZoneBuildingStats
+);
+
+/**
+ * @openapi
+ * /api/zones/building-stats/all:
+ *   get:
+ *     summary: Get building statistics for all accessible zones
+ *     tags: [Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Building statistics retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     summary:
+ *                       type: object
+ *                       properties:
+ *                         totalZones:
+ *                           type: integer
+ *                           example: 5
+ *                         totalBuildings:
+ *                           type: integer
+ *                           example: 125
+ *                         totalOddBuildings:
+ *                           type: integer
+ *                           example: 63
+ *                         totalEvenBuildings:
+ *                           type: integer
+ *                           example: 62
+ *                         averageBuildingsPerZone:
+ *                           type: integer
+ *                           example: 25
+ *                     zones:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           zoneId:
+ *                             type: string
+ *                             example: "507f1f77bcf86cd799439013"
+ *                           zoneName:
+ *                             type: string
+ *                             example: "Downtown District"
+ *                           status:
+ *                             type: string
+ *                             example: "ACTIVE"
+ *                           totalBuildings:
+ *                             type: integer
+ *                             example: 25
+ *                           oddCount:
+ *                             type: integer
+ *                             example: 13
+ *                           evenCount:
+ *                             type: integer
+ *                             example: 12
+ *                           oddRange:
+ *                             type: object
+ *                             properties:
+ *                               min:
+ *                                 type: integer
+ *                                 example: 101
+ *                               max:
+ *                                 type: integer
+ *                                 example: 125
+ *                           evenRange:
+ *                             type: object
+ *                             properties:
+ *                               min:
+ *                                 type: integer
+ *                                 example: 100
+ *                               max:
+ *                                 type: integer
+ *                                 example: 122
+ */
+router.get(
+  '/building-stats/all',
+  getAllZonesBuildingStats
 );
 
 export default router;

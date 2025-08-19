@@ -17,4 +17,6 @@ export declare const updateResidentStatus: (req: AuthRequest, res: Response) => 
 export declare const assignTeamToZone: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 export declare const removeTeamFromZone: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 export declare const getTerritoryOverviewStats: (req: AuthRequest, res: Response) => Promise<void>;
+export declare const getZoneBuildingStats: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
+export declare const getAllZonesBuildingStats: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 //# sourceMappingURL=zone.controller.d.ts.map

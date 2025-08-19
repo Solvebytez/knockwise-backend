@@ -25,6 +25,26 @@ exports.createZoneValidation = [
         .isArray()
         .notEmpty()
         .withMessage('Boundary coordinates must be a non-empty array'),
+    (0, express_validator_1.body)('buildingData')
+        .optional()
+        .isObject()
+        .withMessage('Building data must be an object'),
+    (0, express_validator_1.body)('buildingData.totalBuildings')
+        .optional()
+        .isInt({ min: 0 })
+        .withMessage('Total buildings must be a non-negative integer'),
+    (0, express_validator_1.body)('buildingData.residentialHomes')
+        .optional()
+        .isInt({ min: 0 })
+        .withMessage('Residential homes must be a non-negative integer'),
+    (0, express_validator_1.body)('buildingData.addresses')
+        .optional()
+        .isArray()
+        .withMessage('Addresses must be an array'),
+    (0, express_validator_1.body)('buildingData.coordinates')
+        .optional()
+        .isArray()
+        .withMessage('Coordinates must be an array'),
     (0, express_validator_1.body)('teamId')
         .optional()
         .isMongoId()
@@ -57,6 +77,46 @@ exports.updateZoneValidation = [
         .isArray()
         .notEmpty()
         .withMessage('Boundary coordinates must be a non-empty array'),
+    (0, express_validator_1.body)('buildingData')
+        .optional()
+        .isObject()
+        .withMessage('Building data must be an object'),
+    (0, express_validator_1.body)('buildingData.totalBuildings')
+        .optional()
+        .isInt({ min: 0 })
+        .withMessage('Total buildings must be a non-negative integer'),
+    (0, express_validator_1.body)('buildingData.residentialHomes')
+        .optional()
+        .isInt({ min: 0 })
+        .withMessage('Residential homes must be a non-negative integer'),
+    (0, express_validator_1.body)('buildingData.addresses')
+        .optional()
+        .isArray()
+        .withMessage('Addresses must be an array'),
+    (0, express_validator_1.body)('buildingData.coordinates')
+        .optional()
+        .isArray()
+        .withMessage('Coordinates must be an array'),
+    (0, express_validator_1.body)('status')
+        .optional()
+        .isIn(['DRAFT', 'ACTIVE', 'INACTIVE', 'SCHEDULED', 'COMPLETED'])
+        .withMessage('Status must be one of: DRAFT, ACTIVE, INACTIVE, SCHEDULED, COMPLETED'),
+    (0, express_validator_1.body)('assignedAgentId')
+        .optional()
+        .isMongoId()
+        .withMessage('Assigned Agent ID must be a valid MongoDB ObjectId'),
+    (0, express_validator_1.body)('teamId')
+        .optional()
+        .isMongoId()
+        .withMessage('Team ID must be a valid MongoDB ObjectId'),
+    (0, express_validator_1.body)('effectiveFrom')
+        .optional()
+        .isISO8601()
+        .withMessage('Effective From must be a valid date'),
+    (0, express_validator_1.body)('removeAssignment')
+        .optional()
+        .isBoolean()
+        .withMessage('Remove Assignment must be a boolean'),
 ];
 exports.assignAgentToZoneValidation = [
     (0, common_validator_1.mongoIdParam)('zoneId'),

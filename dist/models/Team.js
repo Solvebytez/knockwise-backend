@@ -39,6 +39,7 @@ const TeamSchema = new mongoose_1.Schema({
     name: { type: String, required: true, trim: true },
     description: { type: String, trim: true },
     status: { type: String, enum: ['ACTIVE', 'INACTIVE'], default: 'INACTIVE', index: true },
+    assignmentStatus: { type: String, enum: ['ASSIGNED', 'UNASSIGNED'], default: 'UNASSIGNED', index: true },
     createdBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     leaderId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     agentIds: [{ type: mongoose_1.Schema.Types.ObjectId, ref: 'User', index: true }],

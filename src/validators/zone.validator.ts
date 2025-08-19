@@ -29,6 +29,26 @@ export const createZoneValidation = [
     .isArray()
     .notEmpty()
     .withMessage('Boundary coordinates must be a non-empty array'),
+  body('buildingData')
+    .optional()
+    .isObject()
+    .withMessage('Building data must be an object'),
+  body('buildingData.totalBuildings')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Total buildings must be a non-negative integer'),
+  body('buildingData.residentialHomes')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Residential homes must be a non-negative integer'),
+  body('buildingData.addresses')
+    .optional()
+    .isArray()
+    .withMessage('Addresses must be an array'),
+  body('buildingData.coordinates')
+    .optional()
+    .isArray()
+    .withMessage('Coordinates must be an array'),
   body('teamId')
     .optional()
     .isMongoId()
@@ -62,6 +82,46 @@ export const updateZoneValidation = [
     .isArray()
     .notEmpty()
     .withMessage('Boundary coordinates must be a non-empty array'),
+  body('buildingData')
+    .optional()
+    .isObject()
+    .withMessage('Building data must be an object'),
+  body('buildingData.totalBuildings')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Total buildings must be a non-negative integer'),
+  body('buildingData.residentialHomes')
+    .optional()
+    .isInt({ min: 0 })
+    .withMessage('Residential homes must be a non-negative integer'),
+  body('buildingData.addresses')
+    .optional()
+    .isArray()
+    .withMessage('Addresses must be an array'),
+  body('buildingData.coordinates')
+    .optional()
+    .isArray()
+    .withMessage('Coordinates must be an array'),
+  body('status')
+    .optional()
+    .isIn(['DRAFT', 'ACTIVE', 'INACTIVE', 'SCHEDULED', 'COMPLETED'])
+    .withMessage('Status must be one of: DRAFT, ACTIVE, INACTIVE, SCHEDULED, COMPLETED'),
+  body('assignedAgentId')
+    .optional()
+    .isMongoId()
+    .withMessage('Assigned Agent ID must be a valid MongoDB ObjectId'),
+  body('teamId')
+    .optional()
+    .isMongoId()
+    .withMessage('Team ID must be a valid MongoDB ObjectId'),
+  body('effectiveFrom')
+    .optional()
+    .isISO8601()
+    .withMessage('Effective From must be a valid date'),
+  body('removeAssignment')
+    .optional()
+    .isBoolean()
+    .withMessage('Remove Assignment must be a boolean'),
 ];
 
 export const assignAgentToZoneValidation = [

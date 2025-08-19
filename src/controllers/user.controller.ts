@@ -81,12 +81,14 @@ const calculateAgentStatus = async (agentId: string): Promise<'ACTIVE' | 'INACTI
     // 3. Is part of a team that has zone assignments, OR
     // 4. Has PENDING scheduled individual assignments, OR
     // 5. Is part of a team that has PENDING scheduled assignments
+    // 6. OR if they were previously ACTIVE (don't automatically deactivate)
     const shouldBeActive = hasIndividualZoneAssignment || 
                           hasIndividualPrimaryZone || 
                           hasActiveIndividualZoneAssignment || 
                           hasTeamZoneAssignment ||
                           hasPendingIndividualScheduledAssignment ||
-                          hasPendingTeamScheduledAssignment;
+                          hasPendingTeamScheduledAssignment ||
+                          agent.status === 'ACTIVE'; // Keep ACTIVE status if already set
 
     return shouldBeActive ? 'ACTIVE' : 'INACTIVE';
   } catch (error) {
@@ -103,7 +105,8 @@ export const updateAgentStatus = async (agentId: string) => {
 
     const calculatedStatus = await calculateAgentStatus(agentId);
     
-    if (calculatedStatus !== agent.status) {
+    // Only update if the agent should be ACTIVE (don't automatically deactivate)
+    if (calculatedStatus === 'ACTIVE' && agent.status !== 'ACTIVE') {
       await User.findByIdAndUpdate(agentId, { status: calculatedStatus });
       console.log(`Agent ${agent.name} (${agentId}) status updated to ${calculatedStatus}`);
     }
@@ -919,9 +922,14 @@ export const getMyCreatedAgents = async (req: AuthRequest, res: Response) => {
         }));
       }
 
+      // Determine assignment status based on zone assignments
+      const hasZoneAssignment = allAssignments.length > 0;
+      const assignmentStatus = hasZoneAssignment ? 'ASSIGNED' : 'UNASSIGNED';
+
       return {
         ...agent.toObject(),
         status: calculatedStatus, // Use calculated status instead of stored status
+        assignmentStatus, // Add assignment status
         teamZoneInfo, // Add team zone information
         allAssignedZones // Add all individual zone assignments
       };
@@ -981,7 +989,7 @@ export const getTeamOverview = async (req: AuthRequest, res: Response) => {
     let activeAgents = 0;
     let inactiveAgents = 0;
 
-    // Count agents based on zone assignment logic (same as status update logic)
+    // Count agents based on status
     for (const agent of agents) {
       // Use the same calculateAgentStatus function that includes scheduled assignments
       const calculatedStatus = await calculateAgentStatus(agent._id.toString());
@@ -1004,13 +1012,36 @@ export const getTeamOverview = async (req: AuthRequest, res: Response) => {
       createdAt: { $gte: startOfMonth }
     });
 
+    // Get total zones count
+    const { Zone } = require('../models/Zone');
+    const totalZones = await Zone.countDocuments({
+      createdBy: currentUserId
+    });
+
+    // Get unassigned agents (agents with assignmentStatus: 'UNASSIGNED')
+    const unassignedAgentsCount = await User.countDocuments({
+      role: 'AGENT',
+      createdBy: currentUserId,
+      assignmentStatus: 'UNASSIGNED'
+    });
+
+    // Get assigned agents (agents with assignmentStatus: 'ASSIGNED')
+    const assignedAgentsCount = await User.countDocuments({
+      role: 'AGENT',
+      createdBy: currentUserId,
+      assignmentStatus: 'ASSIGNED'
+    });
+
     res.json({
       success: true,
       data: {
         totalAgents,
         activeAgents,
         inactiveAgents,
-        agentsThisMonth
+        agentsThisMonth,
+        assignedAgents: assignedAgentsCount,
+        unassignedAgents: unassignedAgentsCount,
+        totalZones
       }
     });
   } catch (error) {

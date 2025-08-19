@@ -29,7 +29,7 @@ export interface IZone extends Document {
     };
     assignedAgentId?: mongoose.Types.ObjectId | null;
     teamId?: mongoose.Types.ObjectId | null;
-    status?: 'DRAFT' | 'ACTIVE' | 'INACTIVE';
+    status?: 'DRAFT' | 'ACTIVE' | 'INACTIVE' | 'SCHEDULED' | 'COMPLETED';
     createdBy?: mongoose.Types.ObjectId;
 }
 export declare const Zone: Model<IZone>;

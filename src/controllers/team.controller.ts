@@ -163,6 +163,40 @@ const updateTeamStatus = async (teamId: string) => {
   }
 };
 
+// Helper function to update team assignment status based on zone assignments
+const updateTeamAssignmentStatus = async (teamId: string, session?: mongoose.ClientSession) => {
+  try {
+    const team = await Team.findById(teamId);
+    if (!team) return;
+
+    // Check if team has any active zone assignments (exclude COMPLETED and CANCELLED)
+    const activeZoneAssignments = await AgentZoneAssignment.find({
+      teamId: teamId,
+      status: { $nin: ['COMPLETED', 'CANCELLED'] },
+      effectiveTo: null
+    });
+
+    // Check if team has any PENDING scheduled assignments
+    const { ScheduledAssignment } = require('../models/ScheduledAssignment');
+    const scheduledAssignments = await ScheduledAssignment.find({
+      teamId: teamId,
+      status: 'PENDING'
+    });
+
+    // Team is ASSIGNED if it has any zone assignments (active or scheduled)
+    const hasZoneAssignment = activeZoneAssignments.length > 0 || scheduledAssignments.length > 0;
+    const newAssignmentStatus = hasZoneAssignment ? 'ASSIGNED' : 'UNASSIGNED';
+
+    if (newAssignmentStatus !== team.assignmentStatus) {
+      const updateOptions = session ? { session } : {};
+      await Team.findByIdAndUpdate(teamId, { assignmentStatus: newAssignmentStatus }, updateOptions);
+      console.log(`Team ${team.name} (${teamId}) assignment status updated to ${newAssignmentStatus}`);
+    }
+  } catch (error) {
+    console.error('Error updating team assignment status:', error);
+  }
+};
+
 // Create a new team
 export const createTeam = async (req: AuthRequest, res: Response) => {
   try {
@@ -360,7 +394,7 @@ export const getTeamById = async (req: AuthRequest, res: Response) => {
       createdBy: currentUserId
     })
       .populate('leaderId', 'name email')
-      .populate('agentIds', 'name email status')
+      .populate('agentIds', 'name email status assignmentStatus userType')
       .populate('createdBy', 'name email');
 
     if (!team) {
@@ -464,7 +498,8 @@ export const getTeamById = async (req: AuthRequest, res: Response) => {
       const calculatedStatus = await calculateAgentStatus(agent._id.toString());
       return {
         ...agent.toObject(),
-        status: calculatedStatus // Use calculated status instead of stored status
+        status: calculatedStatus, // Use calculated status instead of stored status
+        assignmentStatus: agent.assignmentStatus // Preserve the assignmentStatus from the populated data
       };
     }));
     
@@ -862,6 +897,19 @@ export const getTeamStats = async (req: AuthRequest, res: Response) => {
     const activeMembersCount = activeMembers.length > 0 ? activeMembers[0].activeMembers : 0;
     const inactiveMembersCount = totalMembers - activeMembersCount;
 
+    // Get assigned and unassigned members count
+    const assignedMembers = await User.countDocuments({
+      role: 'AGENT',
+      createdBy: currentUserId,
+      assignmentStatus: 'ASSIGNED'
+    });
+
+    const unassignedMembers = await User.countDocuments({
+      role: 'AGENT',
+      createdBy: currentUserId,
+      assignmentStatus: 'UNASSIGNED'
+    });
+
     // Get total zones that are assigned to teams or agents created by this admin
     const adminTeams = await Team.find({ createdBy: currentUserId }).select('_id');
     const adminAgents = await User.find({ 
@@ -1012,6 +1060,8 @@ export const getTeamStats = async (req: AuthRequest, res: Response) => {
       totalMembers,
       activeMembers: activeMembersCount,
       inactiveMembers: inactiveMembersCount,
+      assignedMembers,
+      unassignedMembers,
       inactiveTeams, // Teams without work assignments
       totalZones,
       averagePerformance,
