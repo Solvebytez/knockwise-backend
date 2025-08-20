@@ -348,6 +348,92 @@ router.get('/list-all', (0, validator_1.validate)(validators_1.listZonesValidati
 router.get('/get-by-id/:id', (0, validator_1.validate)(validators_1.getZoneByIdValidation), zone_controller_1.getZoneById);
 /**
  * @openapi
+ * /api/zones/map-view/{id}:
+ *   get:
+ *     summary: Get territory map view data (zone details + residents)
+ *     tags: [Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: "507f1f77bcf86cd799439012"
+ *     responses:
+ *       200:
+ *         description: Territory map view data retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     zone:
+ *                       type: object
+ *                       properties:
+ *                         _id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                         description:
+ *                           type: string
+ *                         boundary:
+ *                           type: object
+ *                         status:
+ *                           type: string
+ *                         totalResidents:
+ *                           type: number
+ *                         activeResidents:
+ *                           type: number
+ *                         assignedTo:
+ *                           type: object
+ *                     properties:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           _id:
+ *                             type: string
+ *                           address:
+ *                             type: string
+ *                           houseNumber:
+ *                             type: number
+ *                           coordinates:
+ *                             type: array
+ *                           status:
+ *                             type: string
+ *                           lastVisited:
+ *                             type: string
+ *                           residents:
+ *                             type: array
+ *                     statusSummary:
+ *                       type: object
+ *                     statistics:
+ *                       type: object
+ *       404:
+ *         description: Zone not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Zone not found"
+ */
+router.get('/map-view/:id', (0, validator_1.validate)(validators_1.getZoneByIdValidation), zone_controller_1.getTerritoryMapView);
+/**
+ * @openapi
  * /api/zones/update/{id}:
  *   put:
  *     summary: Update zone (Superadmin/Subadmin only)
