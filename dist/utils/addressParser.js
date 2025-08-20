@@ -14,7 +14,7 @@ function extractHouseNumber(address) {
         return null;
     // Match number at the beginning of the address
     const match = address.trim().match(/^(\d+)/);
-    return match ? parseInt(match[1], 10) : null;
+    return match ? parseInt(match[1] || '0', 10) : null;
 }
 /**
  * Categorize house numbers into odd and even arrays
@@ -67,8 +67,8 @@ function getHouseNumberStats(houseNumbers) {
         total,
         oddCount,
         evenCount,
-        oddRange,
-        evenRange
+        ...(oddRange && { oddRange }),
+        ...(evenRange && { evenRange })
     };
 }
 //# sourceMappingURL=addressParser.js.map

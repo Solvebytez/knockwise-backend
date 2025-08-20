@@ -8,7 +8,7 @@ export function extractHouseNumber(address: string): number | null {
   
   // Match number at the beginning of the address
   const match = address.trim().match(/^(\d+)/);
-  return match ? parseInt(match[1], 10) : null;
+  return match ? parseInt(match[1] || '0', 10) : null;
 }
 
 /**
@@ -93,7 +93,7 @@ export function getHouseNumberStats(houseNumbers: {
     total,
     oddCount,
     evenCount,
-    oddRange,
-    evenRange
+    ...(oddRange && { oddRange }),
+    ...(evenRange && { evenRange })
   };
 }

@@ -17,7 +17,7 @@ export const createTeamValidation = [
   oneOf([
     body('memberIds').isArray({ min: 1 }),
     body('agentIds').isArray({ min: 1 })
-  ], 'At least one team member is required'),
+  ]),
   
   body('memberIds')
     .optional()

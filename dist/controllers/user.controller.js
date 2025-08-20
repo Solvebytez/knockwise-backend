@@ -824,7 +824,7 @@ const getMyCreatedAgents = async (req, res) => {
                 // Get zone details from the zoneIds array
                 const Zone = require('../models/Zone').default;
                 const zones = await Zone.find({ _id: { $in: agent.zoneIds } }).select('name');
-                allAssignedZones = zones.map(zone => ({
+                allAssignedZones = zones.map((zone) => ({
                     _id: zone._id,
                     name: zone.name,
                     isPrimary: zone._id.toString() === agent.primaryZoneId?._id?.toString()
@@ -833,12 +833,25 @@ const getMyCreatedAgents = async (req, res) => {
             // Determine assignment status based on zone assignments
             const hasZoneAssignment = allAssignments.length > 0;
             const assignmentStatus = hasZoneAssignment ? 'ASSIGNED' : 'UNASSIGNED';
+            // Get team information for all teams the user is a member of
+            let teamInfo = null;
+            if (agent.teamIds && agent.teamIds.length > 0) {
+                const Team = require('../models/Team').default;
+                const teams = await Team.find({ _id: { $in: agent.teamIds } }).select('name');
+                if (teams.length > 0) {
+                    teamInfo = teams.map((team) => ({
+                        _id: team._id,
+                        name: team.name
+                    }));
+                }
+            }
             return {
                 ...agent.toObject(),
                 status: calculatedStatus, // Use calculated status instead of stored status
                 assignmentStatus, // Add assignment status
                 teamZoneInfo, // Add team zone information
-                allAssignedZones // Add all individual zone assignments
+                allAssignedZones, // Add all individual zone assignments
+                teamInfo // Add team information for all teams user is member of
             };
         }));
         // Apply status filter after calculating correct status
@@ -1108,7 +1121,7 @@ const getDetailedAgent = async (req, res) => {
         // Get team information (including teams from assignments)
         const teamIdsFromAssignments = [
             ...teamZoneAssignments.map(a => a.teamId),
-            ...pendingTeamScheduledAssignments.map(a => a.teamId)
+            ...pendingTeamScheduledAssignments.map((a) => a.teamId)
         ];
         const allTeamIds = [...new Set([
                 ...(agent.teamIds || []),

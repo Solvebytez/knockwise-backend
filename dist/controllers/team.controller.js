@@ -514,7 +514,7 @@ const updateTeam = async (req, res) => {
         const currentMemberIds = team.agentIds.map(id => id.toString());
         const newMemberIds = memberIdsToUse ? memberIdsToUse.map((id) => id.toString()) : currentMemberIds;
         // Find added and removed members
-        const addedMembers = newMemberIds.filter(id => !currentMemberIds.includes(id));
+        const addedMembers = newMemberIds.filter((id) => !currentMemberIds.includes(id));
         const removedMembers = currentMemberIds.filter(id => !newMemberIds.includes(id));
         // Update team
         const updateData = {};
@@ -584,7 +584,9 @@ const updateTeam = async (req, res) => {
                 console.log(`Removed team ${teamId} from member ${memberId} and synced zone assignments`);
             }
             // Update team status
-            await updateTeamStatus(teamId);
+            if (teamId) {
+                await updateTeamStatus(teamId);
+            }
         }
         res.json({
             success: true,

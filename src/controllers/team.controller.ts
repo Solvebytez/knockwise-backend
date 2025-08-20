@@ -322,7 +322,7 @@ export const getMyTeams = async (req: AuthRequest, res: Response) => {
 
     // Calculate correct status and zone coverage for each team
     const teamsWithCorrectStatus = await Promise.all(teams.map(async (team) => {
-      const calculatedStatus = await calculateTeamStatus(team._id.toString());
+      const calculatedStatus = await calculateTeamStatus((team._id as any).toString());
       
       // Get zone assignments for this team (active and scheduled)
       const activeZoneAssignments = await AgentZoneAssignment.find({
@@ -507,7 +507,7 @@ export const getTeamById = async (req: AuthRequest, res: Response) => {
     const totalMembers = team.agentIds.length;
 
     // Calculate correct team status
-    const calculatedTeamStatus = await calculateTeamStatus(team._id.toString());
+    const calculatedTeamStatus = await calculateTeamStatus((team._id as any).toString());
 
     // Add performance data to team object
     const teamWithPerformance = {
@@ -584,7 +584,7 @@ export const updateTeam = async (req: AuthRequest, res: Response) => {
     const newMemberIds = memberIdsToUse ? memberIdsToUse.map((id: any) => id.toString()) : currentMemberIds;
 
     // Find added and removed members
-    const addedMembers = newMemberIds.filter(id => !currentMemberIds.includes(id));
+    const addedMembers = newMemberIds.filter((id: any) => !currentMemberIds.includes(id));
     const removedMembers = currentMemberIds.filter(id => !newMemberIds.includes(id));
 
     // Update team
@@ -673,7 +673,9 @@ export const updateTeam = async (req: AuthRequest, res: Response) => {
       }
 
       // Update team status
-      await updateTeamStatus(teamId);
+      if (teamId) {
+        await updateTeamStatus(teamId);
+      }
     }
 
     res.json({

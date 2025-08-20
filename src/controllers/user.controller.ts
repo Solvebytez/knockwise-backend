@@ -845,7 +845,7 @@ export const getMyCreatedAgents = async (req: AuthRequest, res: Response) => {
 
     // Calculate correct status and get all zone information
     const agentsWithCorrectStatus = await Promise.all(agents.map(async (agent: any) => {
-      const calculatedStatus = await calculateAgentStatus(agent._id.toString());
+      const calculatedStatus = await calculateAgentStatus((agent._id as any).toString());
 
       // Get team zone information if agent is part of a team
       let teamZoneInfo = null;
@@ -859,7 +859,7 @@ export const getMyCreatedAgents = async (req: AuthRequest, res: Response) => {
         if (teamZoneAssignment && teamZoneAssignment.zoneId) {
           teamZoneInfo = {
             _id: teamZoneAssignment.zoneId._id,
-            name: teamZoneAssignment.zoneId.name
+            name: (teamZoneAssignment.zoneId as any).name
           };
         }
       }
@@ -915,7 +915,7 @@ export const getMyCreatedAgents = async (req: AuthRequest, res: Response) => {
         // Get zone details from the zoneIds array
         const Zone = require('../models/Zone').default;
         const zones = await Zone.find({ _id: { $in: agent.zoneIds } }).select('name');
-        allAssignedZones = zones.map(zone => ({
+        allAssignedZones = zones.map((zone: any) => ({
           _id: zone._id,
           name: zone.name,
           isPrimary: zone._id.toString() === agent.primaryZoneId?._id?.toString()
@@ -926,12 +926,26 @@ export const getMyCreatedAgents = async (req: AuthRequest, res: Response) => {
       const hasZoneAssignment = allAssignments.length > 0;
       const assignmentStatus = hasZoneAssignment ? 'ASSIGNED' : 'UNASSIGNED';
 
+      // Get team information for all teams the user is a member of
+      let teamInfo = null;
+      if (agent.teamIds && agent.teamIds.length > 0) {
+        const Team = require('../models/Team').default;
+        const teams = await Team.find({ _id: { $in: agent.teamIds } }).select('name');
+        if (teams.length > 0) {
+          teamInfo = teams.map((team: any) => ({
+            _id: team._id,
+            name: team.name
+          }));
+        }
+      }
+
       return {
         ...agent.toObject(),
         status: calculatedStatus, // Use calculated status instead of stored status
         assignmentStatus, // Add assignment status
         teamZoneInfo, // Add team zone information
-        allAssignedZones // Add all individual zone assignments
+        allAssignedZones, // Add all individual zone assignments
+        teamInfo // Add team information for all teams user is member of
       };
     }));
 
@@ -946,7 +960,7 @@ export const getMyCreatedAgents = async (req: AuthRequest, res: Response) => {
       // For status filtering, we need to check zone assignments (individual and team)
       const allAgents = await User.find(filter).select('primaryZoneId zoneIds teamIds');
       const filteredCount = await Promise.all(allAgents.map(async (agent: any) => {
-        const calculatedStatus = await calculateAgentStatus(agent._id.toString());
+        const calculatedStatus = await calculateAgentStatus((agent._id as any).toString());
         return calculatedStatus === status;
       }));
       var total = filteredCount.filter(Boolean).length;
@@ -992,7 +1006,7 @@ export const getTeamOverview = async (req: AuthRequest, res: Response) => {
     // Count agents based on status
     for (const agent of agents) {
       // Use the same calculateAgentStatus function that includes scheduled assignments
-      const calculatedStatus = await calculateAgentStatus(agent._id.toString());
+      const calculatedStatus = await calculateAgentStatus((agent._id as any).toString());
       
       if (calculatedStatus === 'ACTIVE') {
         activeAgents++;
@@ -1072,7 +1086,7 @@ export const getRecentAdditions = async (req: AuthRequest, res: Response) => {
     // Calculate correct status based on zone assignments
     const agentsWithCorrectStatus = await Promise.all(recentAgents.map(async (agent) => {
       // Use the same calculateAgentStatus function that includes scheduled assignments
-      const calculatedStatus = await calculateAgentStatus(agent._id.toString());
+      const calculatedStatus = await calculateAgentStatus((agent._id as any).toString());
 
       return {
         _id: agent._id,
@@ -1228,7 +1242,7 @@ export const getDetailedAgent = async (req: AuthRequest, res: Response) => {
     // Get team information (including teams from assignments)
     const teamIdsFromAssignments = [
       ...teamZoneAssignments.map(a => a.teamId),
-      ...pendingTeamScheduledAssignments.map(a => a.teamId)
+      ...pendingTeamScheduledAssignments.map((a: any) => a.teamId)
     ];
     
     const allTeamIds = [...new Set([
@@ -1261,7 +1275,7 @@ export const getDetailedAgent = async (req: AuthRequest, res: Response) => {
     }
 
     // Calculate correct status based on zone assignments (including scheduled assignments)
-    const calculatedStatus = await calculateAgentStatus(agent._id.toString());
+    const calculatedStatus = await calculateAgentStatus((agent._id as any).toString());
 
     // Get primary team and zone from assignments
     const primaryTeam = teams.length > 0 ? teams[0] : null; // First team as primary
@@ -1315,7 +1329,7 @@ export const refreshAllStatuses = async (req: AuthRequest, res: Response) => {
 
     // Update each agent's status
     const agentUpdates = agents.map(async (agent: any) => {
-      const calculatedStatus = await calculateAgentStatus(agent._id.toString());
+      const calculatedStatus = await calculateAgentStatus((agent._id as any).toString());
       if (calculatedStatus !== agent.status) {
         await User.findByIdAndUpdate(agent._id, { status: calculatedStatus });
         return { agentId: agent._id, name: agent.name, oldStatus: agent.status, newStatus: calculatedStatus };

@@ -1,4 +1,5 @@
-import { format, parseISO, utcToZonedTime, zonedTimeToUtc } from 'date-fns-tz';
+import { format, toZonedTime } from 'date-fns-tz';
+import { parseISO } from 'date-fns';
 
 export class TimezoneService {
   /**
@@ -6,7 +7,7 @@ export class TimezoneService {
    */
   static toTimezone(date: Date | string, timezone: string): Date {
     const dateObj = typeof date === 'string' ? parseISO(date) : date;
-    return utcToZonedTime(dateObj, timezone);
+    return toZonedTime(dateObj, timezone);
   }
 
   /**
@@ -14,7 +15,7 @@ export class TimezoneService {
    */
   static toUTC(date: Date | string, timezone: string): Date {
     const dateObj = typeof date === 'string' ? parseISO(date) : date;
-    return zonedTimeToUtc(dateObj, timezone);
+    return toZonedTime(dateObj, timezone);
   }
 
   /**
@@ -33,7 +34,7 @@ export class TimezoneService {
    * Get current time in a specific timezone
    */
   static getCurrentTimeInTimezone(timezone: string): Date {
-    return utcToZonedTime(new Date(), timezone);
+    return toZonedTime(new Date(), timezone);
   }
 
   /**
@@ -41,7 +42,7 @@ export class TimezoneService {
    */
   static isFutureDate(date: Date | string, timezone: string): boolean {
     const dateObj = typeof date === 'string' ? parseISO(date) : date;
-    const zonedDate = utcToZonedTime(dateObj, timezone);
+    const zonedDate = toZonedTime(dateObj, timezone);
     const currentTime = this.getCurrentTimeInTimezone(timezone);
     return zonedDate > currentTime;
   }

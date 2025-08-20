@@ -9,176 +9,241 @@ import { ScheduledAssignment } from '../models/ScheduledAssignment';
 import { updateAgentStatus } from '../controllers/user.controller';
 
 // Helper function to sync agent's zoneIds with all current assignments
-const syncAgentZoneIds = async (agentId: string) => {
+export const syncAgentZoneIds = async (agentId: string) => {
   try {
+    console.log(`\n🔄 syncAgentZoneIds: Starting for agent ${agentId}`);
+    
+    const agent = await User.findById(agentId);
+    if (!agent) {
+      console.log(`❌ syncAgentZoneIds: Agent ${agentId} not found`);
+      return;
+    }
+
+    console.log(`📋 syncAgentZoneIds: Agent found: ${agent.name} (${agent._id})`);
+    console.log(`📋 syncAgentZoneIds: Current zoneIds: [${agent.zoneIds.join(', ')}]`);
+    console.log(`📋 syncAgentZoneIds: Current primaryZoneId: ${agent.primaryZoneId || 'None'}`);
+    console.log(`📋 syncAgentZoneIds: Agent teamIds: [${agent.teamIds.join(', ')}]`);
+
     // Get all active assignments for this agent (individual and team-based)
+    console.log(`🔍 syncAgentZoneIds: Checking for individual assignments...`);
     const individualAssignments = await AgentZoneAssignment.find({
       agentId: agentId,
       status: { $nin: ['COMPLETED', 'CANCELLED'] },
       effectiveTo: null
     }).populate('zoneId', '_id');
-
-    const agent = await User.findById(agentId);
-    if (!agent) return;
+    console.log(`📋 syncAgentZoneIds: Found ${individualAssignments.length} individual assignments`);
 
     // Get team-based assignments for this agent's teams
+    console.log(`🔍 syncAgentZoneIds: Checking for team assignments...`);
     const teamAssignments = await AgentZoneAssignment.find({
       teamId: { $in: agent.teamIds },
       status: { $nin: ['COMPLETED', 'CANCELLED'] },
       effectiveTo: null
     }).populate('zoneId', '_id');
+    console.log(`📋 syncAgentZoneIds: Found ${teamAssignments.length} team assignments`);
 
-    // Combine all zone IDs from both individual and team assignments
+    // Get PENDING scheduled individual assignments for this agent
+    console.log(`🔍 syncAgentZoneIds: Checking for pending individual scheduled assignments...`);
+    const individualScheduledAssignments = await ScheduledAssignment.find({
+      agentId: agent._id,
+      status: 'PENDING'
+    }).populate('zoneId', '_id');
+    console.log(`📋 syncAgentZoneIds: Found ${individualScheduledAssignments.length} individual scheduled assignments`);
+
+    // Get PENDING scheduled team assignments for this agent's teams
+    console.log(`🔍 syncAgentZoneIds: Checking for pending team scheduled assignments...`);
+    const teamScheduledAssignments = await ScheduledAssignment.find({
+      teamId: { $in: agent.teamIds },
+      status: 'PENDING'
+    }).populate('zoneId', '_id');
+    console.log(`📋 syncAgentZoneIds: Found ${teamScheduledAssignments.length} team scheduled assignments`);
+
+    // Combine all zone IDs from individual, team, and scheduled assignments
     const allZoneIds = [
       ...individualAssignments.map(a => a.zoneId._id.toString()),
-      ...teamAssignments.map(a => a.zoneId._id.toString())
+      ...teamAssignments.map(a => a.zoneId._id.toString()),
+      ...individualScheduledAssignments.map(a => a.zoneId._id.toString()),
+      ...teamScheduledAssignments.map(a => a.zoneId._id.toString())
     ];
 
     // Remove duplicates
     const uniqueZoneIds = [...new Set(allZoneIds)];
 
+    console.log(`📋 syncAgentZoneIds: Combined zone IDs: ${allZoneIds.length}, Unique zone IDs: ${uniqueZoneIds.length}`);
+    console.log(`📋 syncAgentZoneIds: New zoneIds will be: [${uniqueZoneIds.join(', ')}]`);
+
     // Update the agent's zoneIds to match all current assignments
+    console.log(`🔄 syncAgentZoneIds: Updating agent zoneIds...`);
     await User.findByIdAndUpdate(agentId, {
       zoneIds: uniqueZoneIds
     });
 
-    console.log(`Synced zoneIds for agent ${agent.name}: ${uniqueZoneIds.length} zones`);
+    console.log(`✅ syncAgentZoneIds: Synced zoneIds for agent ${agent.name}: ${uniqueZoneIds.length} zones`);
+    console.log(`✅ syncAgentZoneIds: Completed for agent ${agent.name}\n`);
   } catch (error) {
-    console.error('Error syncing agent zoneIds:', error);
+    console.error('❌ syncAgentZoneIds: Error syncing agent zoneIds:', error);
   }
 };
 
 // Helper function to update team status based on zone assignments
-const updateTeamStatus = async (teamId: string) => {
+export const updateTeamStatus = async (teamId: string) => {
   try {
-    console.log(`🔄 updateTeamStatus: Starting for team ${teamId}`);
+    console.log(`\n🔄 updateTeamStatus: Starting for team ${teamId}`);
     const team = await Team.findById(teamId);
     if (!team) {
       console.log(`❌ updateTeamStatus: Team ${teamId} not found`);
       return;
     }
 
-    console.log(`📋 updateTeamStatus: Current status for ${team.name}: ${team.status}`);
+    console.log(`📋 updateTeamStatus: Team found: ${team.name} (${team._id})`);
+    console.log(`📋 updateTeamStatus: Current status: ${team.status}`);
+    console.log(`📋 updateTeamStatus: Current assignment status: ${team.assignmentStatus}`);
+    console.log(`📋 updateTeamStatus: Agent count: ${team.agentIds?.length || 0}`);
+    console.log(`📋 updateTeamStatus: Agent count: ${team.agentIds?.length || 0}`);
 
     // Check if team has any zone assignments (exclude COMPLETED and CANCELLED)
+    console.log(`🔍 updateTeamStatus: Checking for active zone assignments...`);
     const teamZoneAssignments = await AgentZoneAssignment.find({
       teamId: teamId,
       status: { $nin: ['COMPLETED', 'CANCELLED'] },
       effectiveTo: null
     });
+    console.log(`📋 updateTeamStatus: Found ${teamZoneAssignments.length} active zone assignments`);
 
     // Check if team has any PENDING scheduled assignments
+    console.log(`🔍 updateTeamStatus: Checking for pending scheduled assignments...`);
     const scheduledAssignments = await ScheduledAssignment.find({
       teamId: teamId,
       status: 'PENDING'
     });
-
-    console.log(`📋 updateTeamStatus: Found ${teamZoneAssignments.length} active zone assignments`);
     console.log(`📋 updateTeamStatus: Found ${scheduledAssignments.length} pending scheduled assignments`);
 
     // Team is ACTIVE if it has any zone assignments (active or scheduled)
     const hasZoneAssignment = teamZoneAssignments.length > 0 || scheduledAssignments.length > 0;
     const newStatus = hasZoneAssignment ? 'ACTIVE' : 'INACTIVE';
     
-    console.log(`📋 updateTeamStatus: Has zone assignment: ${hasZoneAssignment}, New status: ${newStatus}`);
+    console.log(`📋 updateTeamStatus: Has zone assignment: ${hasZoneAssignment}`);
+    console.log(`📋 updateTeamStatus: Current status: ${team.status}`);
+    console.log(`📋 updateTeamStatus: New status: ${newStatus}`);
+    console.log(`📋 updateTeamStatus: Status change needed: ${newStatus !== team.status}`);
     
     if (newStatus !== team.status) {
+      console.log(`🔄 updateTeamStatus: Updating team status from ${team.status} to ${newStatus}...`);
       await Team.findByIdAndUpdate(teamId, { status: newStatus });
       console.log(`✅ updateTeamStatus: Team ${team.name} (${teamId}) status updated to ${newStatus}`);
     } else {
       console.log(`✅ updateTeamStatus: Team ${team.name} (${teamId}) status unchanged: ${team.status}`);
     }
+    console.log(`✅ updateTeamStatus: Completed for team ${team.name}\n`);
   } catch (error) {
     console.error('❌ updateTeamStatus: Error updating team status:', error);
   }
 };
 
 // Helper function to update team assignment status based on zone assignments
-const updateTeamAssignmentStatus = async (teamId: string) => {
+export const updateTeamAssignmentStatus = async (teamId: string) => {
   try {
-    console.log(`🔄 updateTeamAssignmentStatus: Starting for team ${teamId}`);
+    console.log(`\n🔄 updateTeamAssignmentStatus: Starting for team ${teamId}`);
     const team = await Team.findById(teamId);
     if (!team) {
       console.log(`❌ updateTeamAssignmentStatus: Team ${teamId} not found`);
       return;
     }
 
-    console.log(`📋 updateTeamAssignmentStatus: Current assignment status for ${team.name}: ${team.assignmentStatus}`);
+    console.log(`📋 updateTeamAssignmentStatus: Team found: ${team.name} (${team._id})`);
+    console.log(`📋 updateTeamAssignmentStatus: Current status: ${team.status}`);
+    console.log(`📋 updateTeamAssignmentStatus: Current assignment status: ${team.assignmentStatus}`);
+    console.log(`📋 updateTeamAssignmentStatus: Agent count: ${team.agentIds?.length || 0}`);
+    console.log(`📋 updateTeamAssignmentStatus: Agent count: ${team.agentIds?.length || 0}`);
 
     // Check if team has any active zone assignments (exclude COMPLETED and CANCELLED)
+    console.log(`🔍 updateTeamAssignmentStatus: Checking for active zone assignments...`);
     const activeZoneAssignments = await AgentZoneAssignment.find({
       teamId: teamId,
       status: { $nin: ['COMPLETED', 'CANCELLED'] },
       effectiveTo: null
     });
+    console.log(`📋 updateTeamAssignmentStatus: Found ${activeZoneAssignments.length} active zone assignments`);
 
     // Check if team has any PENDING scheduled assignments
+    console.log(`🔍 updateTeamAssignmentStatus: Checking for pending scheduled assignments...`);
     const scheduledAssignments = await ScheduledAssignment.find({
       teamId: teamId,
       status: 'PENDING'
     });
-
-    console.log(`📋 updateTeamAssignmentStatus: Found ${activeZoneAssignments.length} active zone assignments`);
     console.log(`📋 updateTeamAssignmentStatus: Found ${scheduledAssignments.length} pending scheduled assignments`);
 
     // Team is ASSIGNED if it has any zone assignments (active or scheduled)
     const hasZoneAssignment = activeZoneAssignments.length > 0 || scheduledAssignments.length > 0;
     const newAssignmentStatus = hasZoneAssignment ? 'ASSIGNED' : 'UNASSIGNED';
 
-    console.log(`📋 updateTeamAssignmentStatus: Has zone assignment: ${hasZoneAssignment}, New assignment status: ${newAssignmentStatus}`);
+    console.log(`📋 updateTeamAssignmentStatus: Has zone assignment: ${hasZoneAssignment}`);
+    console.log(`📋 updateTeamAssignmentStatus: Current assignment status: ${team.assignmentStatus}`);
+    console.log(`📋 updateTeamAssignmentStatus: New assignment status: ${newAssignmentStatus}`);
+    console.log(`📋 updateTeamAssignmentStatus: Assignment status change needed: ${newAssignmentStatus !== team.assignmentStatus}`);
 
     if (newAssignmentStatus !== team.assignmentStatus) {
+      console.log(`🔄 updateTeamAssignmentStatus: Updating team assignment status from ${team.assignmentStatus} to ${newAssignmentStatus}...`);
       await Team.findByIdAndUpdate(teamId, { assignmentStatus: newAssignmentStatus });
       console.log(`✅ updateTeamAssignmentStatus: Team ${team.name} (${teamId}) assignment status updated to ${newAssignmentStatus}`);
     } else {
       console.log(`✅ updateTeamAssignmentStatus: Team ${team.name} (${teamId}) assignment status unchanged: ${team.assignmentStatus}`);
     }
+    console.log(`✅ updateTeamAssignmentStatus: Completed for team ${team.name}\n`);
   } catch (error) {
     console.error('❌ updateTeamAssignmentStatus: Error updating team assignment status:', error);
   }
 };
 
 // Helper function to update user assignment status based on zone assignments
-const updateUserAssignmentStatus = async (userId: string) => {
+export const updateUserAssignmentStatus = async (userId: string) => {
   try {
-    console.log(`🔄 updateUserAssignmentStatus: Starting for user ${userId}`);
+    console.log(`\n🔄 updateUserAssignmentStatus: Starting for user ${userId}`);
     const user = await User.findById(userId);
     if (!user || user.role !== 'AGENT') {
       console.log(`❌ updateUserAssignmentStatus: User ${userId} not found or not an agent`);
       return;
     }
 
-    console.log(`📋 updateUserAssignmentStatus: Current assignment status for ${user.name}: ${user.assignmentStatus}`);
+    console.log(`📋 updateUserAssignmentStatus: User found: ${user.name} (${user._id})`);
+    console.log(`📋 updateUserAssignmentStatus: Current status: ${user.status}`);
+    console.log(`📋 updateUserAssignmentStatus: Current assignment status: ${user.assignmentStatus}`);
+    console.log(`📋 updateUserAssignmentStatus: Zone count: ${user.zoneIds?.length || 0}`);
+    console.log(`📋 updateUserAssignmentStatus: Team count: ${user.teamIds?.length || 0}`);
+    console.log(`📋 updateUserAssignmentStatus: Primary zone: ${user.primaryZoneId || 'None'}`);
 
     // Check individual zone assignments (exclude COMPLETED and CANCELLED)
+    console.log(`🔍 updateUserAssignmentStatus: Checking for individual zone assignments...`);
     const individualZoneAssignments = await AgentZoneAssignment.find({
       agentId: user._id,
       status: { $nin: ['COMPLETED', 'CANCELLED'] },
       effectiveTo: null
     });
+    console.log(`📋 updateUserAssignmentStatus: Found ${individualZoneAssignments.length} individual zone assignments`);
 
     // Check team zone assignments (exclude COMPLETED and CANCELLED)
+    console.log(`🔍 updateUserAssignmentStatus: Checking for team zone assignments...`);
     const teamZoneAssignments = await AgentZoneAssignment.find({
       teamId: { $in: user.teamIds },
       status: { $nin: ['COMPLETED', 'CANCELLED'] },
       effectiveTo: null
     });
+    console.log(`📋 updateUserAssignmentStatus: Found ${teamZoneAssignments.length} team zone assignments`);
 
     // Check PENDING scheduled assignments (individual)
+    console.log(`🔍 updateUserAssignmentStatus: Checking for pending individual scheduled assignments...`);
     const pendingIndividualScheduledAssignments = await ScheduledAssignment.find({
       agentId: user._id,
       status: 'PENDING'
     });
+    console.log(`📋 updateUserAssignmentStatus: Found ${pendingIndividualScheduledAssignments.length} pending individual scheduled assignments`);
 
     // Check PENDING scheduled assignments (team)
+    console.log(`🔍 updateUserAssignmentStatus: Checking for pending team scheduled assignments...`);
     const pendingTeamScheduledAssignments = await ScheduledAssignment.find({
       teamId: { $in: user.teamIds },
       status: 'PENDING'
     });
-
-    console.log(`📋 updateUserAssignmentStatus: Found ${individualZoneAssignments.length} individual zone assignments`);
-    console.log(`📋 updateUserAssignmentStatus: Found ${teamZoneAssignments.length} team zone assignments`);
-    console.log(`📋 updateUserAssignmentStatus: Found ${pendingIndividualScheduledAssignments.length} pending individual scheduled assignments`);
     console.log(`📋 updateUserAssignmentStatus: Found ${pendingTeamScheduledAssignments.length} pending team scheduled assignments`);
 
     // User is ASSIGNED if they have any zone assignments (active or scheduled)
@@ -189,14 +254,19 @@ const updateUserAssignmentStatus = async (userId: string) => {
 
     const newAssignmentStatus = hasZoneAssignment ? 'ASSIGNED' : 'UNASSIGNED';
     
-    console.log(`📋 updateUserAssignmentStatus: Has zone assignment: ${hasZoneAssignment}, New assignment status: ${newAssignmentStatus}`);
+    console.log(`📋 updateUserAssignmentStatus: Has zone assignment: ${hasZoneAssignment}`);
+    console.log(`📋 updateUserAssignmentStatus: Current assignment status: ${user.assignmentStatus}`);
+    console.log(`📋 updateUserAssignmentStatus: New assignment status: ${newAssignmentStatus}`);
+    console.log(`📋 updateUserAssignmentStatus: Assignment status change needed: ${newAssignmentStatus !== user.assignmentStatus}`);
     
     if (newAssignmentStatus !== user.assignmentStatus) {
+      console.log(`🔄 updateUserAssignmentStatus: Updating user assignment status from ${user.assignmentStatus} to ${newAssignmentStatus}...`);
       await User.findByIdAndUpdate(userId, { assignmentStatus: newAssignmentStatus });
       console.log(`✅ updateUserAssignmentStatus: User ${user.name} (${userId}) assignment status updated to ${newAssignmentStatus}`);
     } else {
       console.log(`✅ updateUserAssignmentStatus: User ${user.name} (${userId}) assignment status unchanged: ${user.assignmentStatus}`);
     }
+    console.log(`✅ updateUserAssignmentStatus: Completed for user ${user.name}\n`);
   } catch (error) {
     console.error('❌ updateUserAssignmentStatus: Error updating user assignment status:', error);
   }
@@ -293,7 +363,7 @@ export async function createAssignment(req: AuthRequest, res: Response): Promise
         await updateTeamStatus(payload.teamId);
         await updateTeamAssignmentStatus(payload.teamId);
         
-        // Also update assignment status for all team members
+        // Also update assignment status and zoneIds for all team members
         console.log('👥 createAssignment: Fetching team to update member statuses...');
         const team = await Team.findById(payload.teamId);
         if (team && team.agentIds && team.agentIds.length > 0) {
@@ -301,8 +371,12 @@ export async function createAssignment(req: AuthRequest, res: Response): Promise
           for (const agentId of team.agentIds) {
             console.log(`👤 createAssignment: Updating assignment status for team member: ${agentId}`);
             await updateUserAssignmentStatus(agentId.toString());
+            
+            // Also sync zoneIds for team members to include scheduled assignments
+            console.log(`👤 createAssignment: Syncing zoneIds for team member: ${agentId}`);
+            await syncAgentZoneIds(agentId.toString());
           }
-          console.log('✅ createAssignment: All team members assignment status updated');
+          console.log('✅ createAssignment: All team members assignment status and zoneIds updated');
         } else {
           console.log('⚠️ createAssignment: No team members found to update');
         }
