@@ -325,6 +325,15 @@ async function createAssignment(req, res) {
                 effectiveFrom: effectiveFrom,
                 assignedBy: req.user.sub
             });
+            // Update zone status to SCHEDULED if it was in DRAFT
+            if (zone.status === 'DRAFT') {
+                await Zone_1.Zone.findByIdAndUpdate(payload.zoneId, {
+                    status: 'SCHEDULED',
+                    ...(payload.agentId ? { assignedAgentId: payload.agentId } : {}),
+                    ...(payload.teamId ? { teamId: payload.teamId } : {})
+                });
+                console.log('✅ Updated zone status from DRAFT to SCHEDULED');
+            }
             // Update agent/team status for scheduled assignments
             if (payload.agentId) {
                 console.log('👤 createAssignment: Updating individual agent status...');

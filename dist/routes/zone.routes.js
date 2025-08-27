@@ -515,6 +515,162 @@ router.get('/map-view/:id', (0, validator_1.validate)(validators_1.getZoneByIdVa
 router.put('/update/:id', (0, auth_1.requireRoles)('SUPERADMIN', 'SUBADMIN'), (0, validator_1.validate)(validators_1.updateZoneValidation), zone_controller_1.updateZone);
 /**
  * @openapi
+ * /api/zones/update-basic/:id:
+ *   put:
+ *     summary: Update zone basic information (name, description only)
+ *     tags: [Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: "507f1f77bcf86cd799439012"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 example: "Downtown Territory"
+ *               description:
+ *                 type: string
+ *                 example: "Updated territory description"
+ *     responses:
+ *       200:
+ *         description: Zone basic info updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Zone basic information updated successfully"
+ *                 data:
+ *                   $ref: '#/components/schemas/Zone'
+ */
+/**
+ * @openapi
+ * /api/zones/update-unified/{id}:
+ *   put:
+ *     summary: Update zone with unified controller (basic info, boundary, residents)
+ *     tags: [Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Zone ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               updateType:
+ *                 type: string
+ *                 enum: ['basic', 'boundary', 'residents', 'all']
+ *                 description: Type of update to perform
+ *                 example: "basic"
+ *               name:
+ *                 type: string
+ *                 example: "Updated Zone Name"
+ *               description:
+ *                 type: string
+ *                 example: "Updated zone description"
+ *               boundary:
+ *                 type: object
+ *                 properties:
+ *                   type:
+ *                     type: string
+ *                     enum: [Polygon]
+ *                   coordinates:
+ *                     type: array
+ *                     items:
+ *                       type: array
+ *                       items:
+ *                         type: number
+ *               buildingData:
+ *                 type: object
+ *                 properties:
+ *                   totalBuildings:
+ *                     type: number
+ *                   residentialHomes:
+ *                     type: number
+ *                   addresses:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                   coordinates:
+ *                     type: array
+ *                     items:
+ *                       type: array
+ *                       items:
+ *                         type: number
+ *               residents:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     name:
+ *                       type: string
+ *                     address:
+ *                       type: string
+ *                     lat:
+ *                       type: number
+ *                     lng:
+ *                       type: number
+ *                     status:
+ *                       type: string
+ *                     phone:
+ *                       type: string
+ *                     email:
+ *                       type: string
+ *                     notes:
+ *                       type: string
+ *     responses:
+ *       200:
+ *         description: Zone updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Zone updated successfully"
+ *                 data:
+ *                   $ref: '#/components/schemas/Zone'
+ *       400:
+ *         description: Invalid request data
+ *       403:
+ *         description: Access denied
+ *       404:
+ *         description: Zone not found
+ *       409:
+ *         description: Zone name already exists or boundary overlaps
+ *       500:
+ *         description: Server error
+ */
+router.put('/update-unified/:id', (0, auth_1.requireRoles)('SUPERADMIN', 'SUBADMIN'), zone_controller_1.updateZoneUnified);
+/**
+ * @openapi
  * /api/zones/delete/{id}:
  *   delete:
  *     summary: Delete zone (Superadmin/Subadmin only)

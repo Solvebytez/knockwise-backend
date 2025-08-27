@@ -12,9 +12,34 @@ exports.getHouseNumberStats = getHouseNumberStats;
 function extractHouseNumber(address) {
     if (!address)
         return null;
-    // Match number at the beginning of the address
-    const match = address.trim().match(/^(\d+)/);
-    return match ? parseInt(match[1] || '0', 10) : null;
+    // Try multiple patterns to extract house number
+    const patterns = [
+        /^(\d+)/, // Number at the beginning: "123 Main St"
+        /^(\d+)\s+/, // Number followed by space: "123 Main St"
+        /^(\d+)[A-Za-z]/, // Number followed by letter: "123A Main St"
+        /^(\d+)-/, // Number with hyphen: "123-125 Main St"
+        /^(\d+)\//, // Number with slash: "123/125 Main St"
+        /^(\d+)\s*[A-Za-z]/, // Number with optional space and letter: "123A Main St"
+    ];
+    for (const pattern of patterns) {
+        const match = address.trim().match(pattern);
+        if (match) {
+            const houseNumber = parseInt(match[1] || '0', 10);
+            if (houseNumber > 0) {
+                return houseNumber;
+            }
+        }
+    }
+    // If no pattern matches, try to find any number in the first part of the address
+    const firstPart = address.split(',')[0]; // Get the street part
+    const numberMatch = firstPart?.match(/(\d+)/);
+    if (numberMatch) {
+        const houseNumber = parseInt(numberMatch[1] || '0', 10);
+        if (houseNumber > 0) {
+            return houseNumber;
+        }
+    }
+    return null;
 }
 /**
  * Categorize house numbers into odd and even arrays

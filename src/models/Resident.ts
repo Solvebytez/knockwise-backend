@@ -20,6 +20,7 @@ export interface IResident extends Document {
   email?: string;
   lastVisited?: Date;
   assignedAgentId?: mongoose.Types.ObjectId;
+  propertyDataId?: mongoose.Types.ObjectId | null; // Link to detailed property info
   createdAt: Date;
   updatedAt: Date;
 }
@@ -41,6 +42,7 @@ const ResidentSchema = new Schema<IResident>(
     email: { type: String, lowercase: true },
     lastVisited: { type: Date },
     assignedAgentId: { type: Schema.Types.ObjectId, ref: 'User', index: true },
+    propertyDataId: { type: Schema.Types.ObjectId, ref: 'PropertyData', default: null, index: true },
   },
   { timestamps: true }
 );

@@ -278,10 +278,12 @@ const getMyTeams = async (req, res) => {
             .skip(skip)
             .limit(Number(limit))
             .sort({ createdAt: -1 });
+        // Filter out teams that have no members
+        const teamsWithMembers = teams.filter(team => team.agentIds && team.agentIds.length > 0);
         // Import ScheduledAssignment model
         const { ScheduledAssignment } = require('../models/ScheduledAssignment');
         // Calculate correct status and zone coverage for each team
-        const teamsWithCorrectStatus = await Promise.all(teams.map(async (team) => {
+        const teamsWithCorrectStatus = await Promise.all(teamsWithMembers.map(async (team) => {
             const calculatedStatus = await calculateTeamStatus(team._id.toString());
             // Get zone assignments for this team (active and scheduled)
             const activeZoneAssignments = await AgentZoneAssignment_1.AgentZoneAssignment.find({
@@ -315,7 +317,11 @@ const getMyTeams = async (req, res) => {
                 }
             };
         }));
-        const total = await Team_1.Team.countDocuments(filter);
+        // Count total teams with members for pagination
+        const allTeamsWithMembers = await Team_1.Team.find(filter)
+            .populate('agentIds')
+            .then(teams => teams.filter(team => team.agentIds && team.agentIds.length > 0));
+        const total = allTeamsWithMembers.length;
         res.json({
             success: true,
             data: teamsWithCorrectStatus,
@@ -975,9 +981,11 @@ exports.getTeamStats = getTeamStats;
 const getTeamPerformance = async (req, res) => {
     try {
         const currentUserId = req.user?.sub;
-        const teams = await Team_1.Team.find({ createdBy: currentUserId })
+        const allTeams = await Team_1.Team.find({ createdBy: currentUserId })
             .populate('agentIds', 'name email status zoneId')
             .populate('leaderId', 'name email');
+        // Filter out teams with no members
+        const teams = allTeams.filter(team => team.agentIds && team.agentIds.length > 0);
         const performanceData = await Promise.all(teams.map(async (team) => {
             // Import ScheduledAssignment model
             const { ScheduledAssignment } = require('../models/ScheduledAssignment');

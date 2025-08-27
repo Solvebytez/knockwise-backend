@@ -4,6 +4,8 @@ export interface OverlapResult {
   hasOverlap: boolean;
   overlappingZones: any[];
   overlapPercentage?: number;
+  totalOverlaps?: number;
+  authorizedOverlaps?: number;
 }
 
 /**
@@ -14,7 +16,8 @@ export interface OverlapResult {
  */
 export const checkZoneOverlap = async (
   boundary: any,
-  excludeZoneId?: string
+  excludeZoneId?: string,
+  currentUser?: any
 ): Promise<OverlapResult> => {
   try {
     // Ensure boundary is a valid GeoJSON polygon
@@ -36,13 +39,19 @@ export const checkZoneOverlap = async (
       query._id = { $ne: excludeZoneId };
     }
 
+    // For overlap checking, we check against ALL zones to prevent overlaps
+    // But we'll filter the response based on user authorization
+    const checkAllZones = true; // Always check all zones for overlap prevention
+
     // Find zones that intersect with the new boundary
     const overlappingZones = await Zone.find(query).select('_id name status createdBy createdAt');
 
     if (overlappingZones.length === 0) {
       return {
         hasOverlap: false,
-        overlappingZones: []
+        overlappingZones: [],
+        totalOverlaps: 0,
+        authorizedOverlaps: 0
       };
     }
 
@@ -72,10 +81,22 @@ export const checkZoneOverlap = async (
       }
     }
 
+    // Filter overlapping zones based on user authorization (for response only)
+    let authorizedOverlappingZones = overlappingZones;
+    if (currentUser && currentUser.role !== 'SUPERADMIN') {
+      authorizedOverlappingZones = overlappingZones.filter(zone => 
+        zone.createdBy?.toString() === currentUser.id ||
+        zone.teamId?.toString() === currentUser.primaryTeamId ||
+        zone.assignedAgentId?.toString() === currentUser.id
+      );
+    }
+
     return {
-      hasOverlap: true,
-      overlappingZones,
-      overlapPercentage: maxOverlapPercentage
+      hasOverlap: overlappingZones.length > 0, // Always return true if there's any overlap
+      overlappingZones: authorizedOverlappingZones, // But only show authorized zones in response
+      overlapPercentage: maxOverlapPercentage,
+      totalOverlaps: overlappingZones.length, // Include total count for debugging
+      authorizedOverlaps: authorizedOverlappingZones.length // Include authorized count
     };
   } catch (error) {
     console.error('Error checking zone overlap:', error);

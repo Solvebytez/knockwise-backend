@@ -1,4 +1,4 @@
-import { Document, Model } from 'mongoose';
+import mongoose, { Document, Model } from 'mongoose';
 export interface IPropertyData extends Document {
     addressLine1: string;
     addressLine2?: string;
@@ -9,6 +9,7 @@ export interface IPropertyData extends Document {
         type: 'Point';
         coordinates: [number, number];
     };
+    zoneId?: mongoose.Types.ObjectId | null;
     mlsId?: string;
     mlsStatus?: 'ACTIVE' | 'SOLD' | 'PENDING' | 'WITHDRAWN';
     listPrice?: number;

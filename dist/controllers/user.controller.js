@@ -1208,8 +1208,9 @@ const refreshAllStatuses = async (req, res) => {
         });
         const agentResults = await Promise.all(agentUpdates);
         const updatedAgents = agentResults.filter(result => result !== null);
-        // Get all teams created by this admin
-        const teams = await Team_1.Team.find({ createdBy: currentUserId });
+        // Get all teams created by this admin (filter out teams with no members)
+        const allTeams = await Team_1.Team.find({ createdBy: currentUserId }).populate('agentIds');
+        const teams = allTeams.filter(team => team.agentIds && team.agentIds.length > 0);
         // Update each team's status
         const teamUpdates = teams.map(async (team) => {
             const calculatedStatus = await calculateTeamStatus(team._id.toString());

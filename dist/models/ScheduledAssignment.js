@@ -43,7 +43,7 @@ const ScheduledAssignmentSchema = new mongoose_1.Schema({
     effectiveFrom: { type: Date, required: true, index: true },
     status: {
         type: String,
-        enum: ['PENDING', 'ACTIVATED', 'CANCELLED'],
+        enum: ['PENDING', 'ACTIVATED', 'CANCELLED', 'COMPLETED', 'SCHEDULED'],
         default: 'PENDING',
         index: true
     },

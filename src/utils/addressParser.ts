@@ -28,7 +28,7 @@ export function extractHouseNumber(address: string): number | null {
   
   // If no pattern matches, try to find any number in the first part of the address
   const firstPart = address.split(',')[0]; // Get the street part
-  const numberMatch = firstPart.match(/(\d+)/);
+  const numberMatch = firstPart?.match(/(\d+)/);
   if (numberMatch) {
     const houseNumber = parseInt(numberMatch[1] || '0', 10);
     if (houseNumber > 0) {

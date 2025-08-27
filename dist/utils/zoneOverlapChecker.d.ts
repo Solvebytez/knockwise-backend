@@ -2,6 +2,8 @@ export interface OverlapResult {
     hasOverlap: boolean;
     overlappingZones: any[];
     overlapPercentage?: number;
+    totalOverlaps?: number;
+    authorizedOverlaps?: number;
 }
 /**
  * Check if a new zone boundary overlaps with existing zones
@@ -9,7 +11,7 @@ export interface OverlapResult {
  * @param excludeZoneId - Zone ID to exclude from overlap check (for updates)
  * @returns OverlapResult with overlap information
  */
-export declare const checkZoneOverlap: (boundary: any, excludeZoneId?: string) => Promise<OverlapResult>;
+export declare const checkZoneOverlap: (boundary: any, excludeZoneId?: string, currentUser?: any) => Promise<OverlapResult>;
 /**
  * Check for duplicate buildings across all zones
  * @param addresses - Array of building addresses

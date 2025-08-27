@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Assignment Transition Logic Analysis</title>
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+            line-height: 1.6;
+            color: #24292f;
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+            background-color: #ffffff;
+        }
+        .markdown-body {
+            box-sizing: border-box;
+            min-width: 200px;
+            max-width: 100%;
+            padding: 45px;
+            background-color: #ffffff;
+            border: 1px solid #d0d7de;
+            border-radius: 6px;
+        }
+        .markdown-body h1,
+        .markdown-body h2,
+        .markdown-body h3,
+        .markdown-body h4,
+        .markdown-body h5,
+        .markdown-body h6 {
+            margin-top: 24px;
+            margin-bottom: 16px;
+            font-weight: 600;
+            line-height: 1.25;
+        }
+        .markdown-body h1 {
+            font-size: 2em;
+            border-bottom: 1px solid #d0d7de;
+            padding-bottom: 0.3em;
+        }
+        .markdown-body h2 {
+            font-size: 1.5em;
+            border-bottom: 1px solid #d0d7de;
+            padding-bottom: 0.3em;
+        }
+        .markdown-body h3 {
+            font-size: 1.25em;
+        }
+        .markdown-body code {
+            background-color: rgba(175, 184, 193, 0.2);
+            border-radius: 6px;
+            font-size: 85%;
+            margin: 0;
+            padding: 0.2em 0.4em;
+        }
+        .markdown-body pre {
+            background-color: #f6f8fa;
+            border-radius: 6px;
+            font-size: 85%;
+            line-height: 1.45;
+            overflow: auto;
+            padding: 16px;
+        }
+        .markdown-body pre code {
+            background-color: transparent;
+            border: 0;
+            display: inline;
+            line-height: inherit;
+            margin: 0;
+            overflow: visible;
+            padding: 0;
+            word-wrap: normal;
+        }
+        .markdown-body blockquote {
+            border-left: 0.25em solid #d0d7de;
+            color: #656d76;
+            margin: 0 0 16px 0;
+            padding: 0 1em;
+        }
+        .markdown-body table {
+            border-collapse: collapse;
+            border-spacing: 0;
+            display: block;
+            margin: 0 0 16px 0;
+            overflow: auto;
+            width: 100%;
+        }
+        .markdown-body table th,
+        .markdown-body table td {
+            border: 1px solid #d0d7de;
+            padding: 6px 13px;
+        }
+        .markdown-body table th {
+            background-color: #f6f8fa;
+            font-weight: 600;
+        }
+        .markdown-body ul,
+        .markdown-body ol {
+            margin: 0 0 16px 0;
+            padding-left: 2em;
+        }
+        .markdown-body li {
+            margin: 0.25em 0;
+        }
+        .markdown-body .highlight {
+            background-color: #fff8dc;
+        }
+        .markdown-body .success {
+            color: #22863a;
+        }
+        .markdown-body .warning {
+            color: #d15704;
+        }
+        .markdown-body .error {
+            color: #cb2431;
+        }
+        .markdown-body .info {
+            color: #0366d6;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            font-size: 18px;
+            color: #656d76;
+        }
+        .error-message {
+            color: #cb2431;
+            background-color: #ffeef0;
+            border: 1px solid #f97583;
+            border-radius: 6px;
+            padding: 16px;
+            margin: 16px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="markdown-body" id="content">
+        <div class="loading">Loading analysis document...</div>
+    </div>
+
+    <script>
+        // Function to load and render markdown
+        async function loadMarkdown() {
+            try {
+                const response = await fetch('./TRANSITION_ANALYSIS.md');
+                if (!response.ok) {
+                    throw new Error(`HTTP error! status: ${response.status}`);
+                }
+                const markdown = await response.text();
+                
+                // Configure marked options
+                marked.setOptions({
+                    breaks: true,
+                    gfm: true
+                });
+                
+                // Render markdown to HTML
+                const html = marked.parse(markdown);
+                document.getElementById('content').innerHTML = html;
+                
+            } catch (error) {
+                document.getElementById('content').innerHTML = `
+                    <div class="error-message">
+                        <h3>Error Loading Document</h3>
+                        <p>Could not load TRANSITION_ANALYSIS.md file.</p>
+                        <p><strong>Error:</strong> ${error.message}</p>
+                        <p><strong>Solution:</strong> Make sure the TRANSITION_ANALYSIS.md file is in the same directory as this HTML file.</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Load the markdown when page loads
+        loadMarkdown();
+    </script>
+</body>
+</html>
