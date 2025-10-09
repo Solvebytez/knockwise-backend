@@ -97,6 +97,10 @@ exports.updateZoneValidation = [
         .optional()
         .isArray()
         .withMessage('Coordinates must be an array'),
+    (0, express_validator_1.body)('zoneType')
+        .optional()
+        .isIn(['MANUAL', 'MAP'])
+        .withMessage('Zone type must be either MANUAL or MAP'),
     (0, express_validator_1.body)('status')
         .optional()
         .isIn(['DRAFT', 'ACTIVE', 'INACTIVE', 'SCHEDULED', 'COMPLETED'])

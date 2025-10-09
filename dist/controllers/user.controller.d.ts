@@ -20,5 +20,6 @@ export declare const getTeamOverview: (req: AuthRequest, res: Response) => Promi
 export declare const getRecentAdditions: (req: AuthRequest, res: Response) => Promise<void>;
 export declare const bulkUpdateAgentStatuses: (req: AuthRequest, res: Response) => Promise<void>;
 export declare const getDetailedAgent: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
+export declare const refreshAssignmentStatuses: (req: AuthRequest, res: Response) => Promise<void>;
 export declare const refreshAllStatuses: (req: AuthRequest, res: Response) => Promise<void>;
 //# sourceMappingURL=user.controller.d.ts.map

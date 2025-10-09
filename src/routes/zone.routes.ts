@@ -1,5 +1,5 @@
-import { Router } from 'express';
-import { requireAuth, requireRoles, AuthRequest } from '../middleware/auth';
+import { Router } from "express";
+import { requireAuth, requireRoles, AuthRequest } from "../middleware/auth";
 import {
   createZone,
   listZones,
@@ -22,8 +22,8 @@ import {
   getZoneBuildingStats,
   getAllZonesBuildingStats,
   getTerritoryMapView,
-} from '../controllers/zone.controller';
-import { validate } from '../utils/validator';
+} from "../controllers/zone.controller";
+import { validate } from "../utils/validator";
 import {
   createZoneValidation,
   updateZoneValidation,
@@ -36,7 +36,7 @@ import {
   getZonesByProximityValidation,
   getZoneStatisticsValidation,
   getNearbyPropertiesValidation,
-} from '../validators';
+} from "../validators";
 
 const router = Router();
 
@@ -111,7 +111,11 @@ router.use(requireAuth);
  *                       type: boolean
  *                       example: true
  */
-router.post('/check-overlap', requireRoles('SUPERADMIN', 'SUBADMIN'), checkZoneOverlapBeforeCreate);
+router.post(
+  "/check-overlap",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
+  checkZoneOverlapBeforeCreate
+);
 
 // Zone CRUD operations
 /**
@@ -212,8 +216,8 @@ router.post('/check-overlap', requireRoles('SUPERADMIN', 'SUBADMIN'), checkZoneO
  *                   example: "Zone with this name already exists"
  */
 router.post(
-  '/create-zone',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/create-zone",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   validate(createZoneValidation),
   createZone
 );
@@ -251,6 +255,13 @@ router.post(
  *           type: string
  *           enum: [DRAFT, ACTIVE, INACTIVE]
  *           example: "DRAFT"
+ *       - in: query
+ *         name: visualization
+ *         schema:
+ *           type: string
+ *           enum: [true]
+ *           example: "true"
+ *           description: "Set to 'true' to bypass role-based filtering and get all territories for visualization purposes"
  *     responses:
  *       200:
  *         description: List of zones with pagination
@@ -313,11 +324,7 @@ router.post(
  *                       type: integer
  *                       example: 3
  */
-router.get(
-  '/list-all',
-  validate(listZonesValidation),
-  listZones
-);
+router.get("/list-all", validate(listZonesValidation), listZones);
 
 /**
  * @openapi
@@ -392,11 +399,7 @@ router.get(
  *                   type: string
  *                   example: "Zone not found"
  */
-router.get(
-  '/get-by-id/:id',
-  validate(getZoneByIdValidation),
-  getZoneById
-);
+router.get("/get-by-id/:id", validate(getZoneByIdValidation), getZoneById);
 
 /**
  * @openapi
@@ -484,7 +487,7 @@ router.get(
  *                   example: "Zone not found"
  */
 router.get(
-  '/map-view/:id',
+  "/map-view/:id",
   validate(getZoneByIdValidation),
   getTerritoryMapView
 );
@@ -570,8 +573,8 @@ router.get(
  *                   example: "Zone not found"
  */
 router.put(
-  '/update/:id',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/update/:id",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   validate(updateZoneValidation),
   updateZone
 );
@@ -732,8 +735,8 @@ router.put(
  *         description: Server error
  */
 router.put(
-  '/update-unified/:id',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/update-unified/:id",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   updateZoneUnified
 );
 
@@ -794,8 +797,8 @@ router.put(
  *                   example: "Zone not found"
  */
 router.delete(
-  '/delete/:id',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/delete/:id",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   validate(deleteZoneValidation),
   deleteZone
 );
@@ -878,8 +881,8 @@ router.delete(
  *                   example: "Agent or zone not found"
  */
 router.post(
-  '/assign-agent-to-zone',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/assign-agent-to-zone",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   validate(assignAgentToZoneValidation),
   assignAgentToZone
 );
@@ -962,7 +965,7 @@ router.post(
  *                         example: "ACTIVE"
  */
 router.get(
-  '/list-assignments',
+  "/list-assignments",
   validate(getZoneAssignmentsValidation),
   getZoneAssignments
 );
@@ -1011,8 +1014,8 @@ router.get(
  *                   example: "Assignment not found"
  */
 router.put(
-  '/remove-agent-from-zone/:assignmentId',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/remove-agent-from-zone/:assignmentId",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   validate(removeAgentFromZoneValidation),
   removeAgentFromZone
 );
@@ -1102,8 +1105,8 @@ router.put(
  *                   example: "Team or zone not found"
  */
 router.post(
-  '/assign-team-to-zone',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/assign-team-to-zone",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   assignTeamToZone
 );
 
@@ -1163,8 +1166,8 @@ router.post(
  *                   example: "Zone not found"
  */
 router.put(
-  '/remove-team-from-zone/:zoneId',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/remove-team-from-zone/:zoneId",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   removeTeamFromZone
 );
 
@@ -1250,7 +1253,7 @@ router.put(
  *                   example: "Latitude and longitude are required"
  */
 router.get(
-  '/find-by-proximity',
+  "/find-by-proximity",
   validate(getZonesByProximityValidation),
   getZonesByProximity
 );
@@ -1322,7 +1325,7 @@ router.get(
  *                   example: "Zone not found"
  */
 router.get(
-  '/statistics/:zoneId',
+  "/statistics/:zoneId",
   validate(getZoneStatisticsValidation),
   getZoneStatistics
 );
@@ -1433,7 +1436,7 @@ router.get(
  *                   example: "Zone not found"
  */
 router.get(
-  '/detailed-stats/:id',
+  "/detailed-stats/:id",
   validate(getZoneByIdValidation),
   getZoneDetailedStats
 );
@@ -1497,10 +1500,7 @@ router.get(
  *                           type: integer
  *                           example: 92
  */
-router.get(
-  '/overview-stats',
-  getTerritoryOverviewStats
-);
+router.get("/overview-stats", getTerritoryOverviewStats);
 
 /**
  * @openapi
@@ -1604,11 +1604,7 @@ router.get(
  *                         pages:
  *                           type: integer
  */
-router.get(
-  '/:id/residents',
-  validate(getZoneByIdValidation),
-  getZoneResidents
-);
+router.get("/:id/residents", validate(getZoneByIdValidation), getZoneResidents);
 
 /**
  * @openapi
@@ -1691,10 +1687,7 @@ router.get(
  *                   type: string
  *                   example: "Resident not found"
  */
-router.put(
-  '/residents/:residentId',
-  updateResidentStatus
-);
+router.put("/residents/:residentId", updateResidentStatus);
 
 /**
  * @openapi
@@ -1801,7 +1794,7 @@ router.put(
  *                   example: "Zone not found"
  */
 router.get(
-  '/:zoneId/building-stats',
+  "/:zoneId/building-stats",
   validate(getZoneByIdValidation),
   getZoneBuildingStats
 );
@@ -1888,9 +1881,6 @@ router.get(
  *                                 type: integer
  *                                 example: 122
  */
-router.get(
-  '/building-stats/all',
-  getAllZonesBuildingStats
-);
+router.get("/building-stats/all", getAllZonesBuildingStats);
 
 export default router;

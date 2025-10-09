@@ -3,12 +3,13 @@ var __importDefault = (this && this.__importDefault) || function (mod) {
     return (mod && mod.__esModule) ? mod : { "default": mod };
 };
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.refreshAllStatuses = exports.getDetailedAgent = exports.bulkUpdateAgentStatuses = exports.getRecentAdditions = exports.getTeamOverview = exports.getMyCreatedAgents = exports.getTeamPerformance = exports.getSystemAnalytics = exports.getMyZoneInfo = exports.updateMyProfile = exports.getMyProfile = exports.assignAgentToTeam = exports.getMyTeamMembers = exports.listUsers = exports.getUserById = exports.deleteUser = exports.updateUser = exports.createUser = exports.updateAgentZoneAssignment = exports.updateAgentStatusOnZoneChange = exports.updateAgentStatus = void 0;
+exports.refreshAllStatuses = exports.refreshAssignmentStatuses = exports.getDetailedAgent = exports.bulkUpdateAgentStatuses = exports.getRecentAdditions = exports.getTeamOverview = exports.getMyCreatedAgents = exports.getTeamPerformance = exports.getSystemAnalytics = exports.getMyZoneInfo = exports.updateMyProfile = exports.getMyProfile = exports.assignAgentToTeam = exports.getMyTeamMembers = exports.listUsers = exports.getUserById = exports.deleteUser = exports.updateUser = exports.createUser = exports.updateAgentZoneAssignment = exports.updateAgentStatusOnZoneChange = exports.updateAgentStatus = void 0;
 const User_1 = require("../models/User");
 const Team_1 = require("../models/Team");
 const Zone_1 = require("../models/Zone");
 const AgentZoneAssignment_1 = require("../models/AgentZoneAssignment");
 const AgentTeamAssignment_1 = require("../models/AgentTeamAssignment");
+const ScheduledAssignment_1 = require("../models/ScheduledAssignment");
 const bcryptjs_1 = __importDefault(require("bcryptjs"));
 // Helper function to calculate team status based on zone assignments
 const calculateTeamStatus = async (teamId) => {
@@ -469,7 +470,7 @@ exports.getUserById = getUserById;
 // List all users with pagination (Superadmin/Subadmin only)
 const listUsers = async (req, res) => {
     try {
-        const { page = 1, limit = 10, role, status, teamId, search } = req.query;
+        const { page = 1, limit = 10, role, status, teamId, search, excludeAssigned } = req.query;
         const skip = (Number(page) - 1) * Number(limit);
         const filter = {};
         if (role)
@@ -490,13 +491,61 @@ const listUsers = async (req, res) => {
         if (req.user?.role !== 'SUPERADMIN') {
             filter.createdBy = req.user?.sub;
         }
-        const users = await User_1.User.find(filter)
+        let users = await User_1.User.find(filter)
             .select('-password')
             .populate('primaryTeamId', 'name')
             .populate('primaryZoneId', 'name')
             .skip(skip)
             .limit(Number(limit))
             .sort({ createdAt: -1 });
+        // If excludeAssigned is true, filter out agents who have active or scheduled zone assignments
+        if (excludeAssigned === 'true' && role === 'AGENT') {
+            console.log('🔍 Filtering out agents with active/scheduled assignments...');
+            const { AgentZoneAssignment } = require('../models/AgentZoneAssignment');
+            const { ScheduledAssignment } = require('../models/ScheduledAssignment');
+            const filteredUsers = [];
+            for (const user of users) {
+                // Check for active individual zone assignments
+                const hasActiveIndividualAssignments = await AgentZoneAssignment.exists({
+                    agentId: user._id,
+                    status: { $nin: ['COMPLETED', 'CANCELLED'] },
+                    effectiveTo: null
+                });
+                // Check for pending scheduled individual assignments
+                const hasPendingScheduledAssignments = await ScheduledAssignment.exists({
+                    agentId: user._id,
+                    status: 'PENDING'
+                });
+                // Check for active team zone assignments (if agent is part of teams)
+                let hasActiveTeamAssignments = false;
+                if (user.teamIds && user.teamIds.length > 0) {
+                    hasActiveTeamAssignments = await AgentZoneAssignment.exists({
+                        teamId: { $in: user.teamIds },
+                        status: { $nin: ['COMPLETED', 'CANCELLED'] },
+                        effectiveTo: null
+                    });
+                }
+                // Check for pending scheduled team assignments
+                let hasPendingTeamScheduledAssignments = false;
+                if (user.teamIds && user.teamIds.length > 0) {
+                    hasPendingTeamScheduledAssignments = await ScheduledAssignment.exists({
+                        teamId: { $in: user.teamIds },
+                        status: 'PENDING'
+                    });
+                }
+                const hasAnyAssignments = hasActiveIndividualAssignments ||
+                    hasPendingScheduledAssignments ||
+                    hasActiveTeamAssignments ||
+                    hasPendingTeamScheduledAssignments;
+                console.log(`🔍 Agent ${user.email}: hasActiveIndividual=${hasActiveIndividualAssignments}, hasPendingScheduled=${hasPendingScheduledAssignments}, hasActiveTeam=${hasActiveTeamAssignments}, hasPendingTeamScheduled=${hasPendingTeamScheduledAssignments}, hasAnyAssignments=${hasAnyAssignments}`);
+                // Only include agents who don't have any active or scheduled assignments
+                if (!hasAnyAssignments) {
+                    filteredUsers.push(user);
+                }
+            }
+            users = filteredUsers;
+            console.log(`✅ Filtered ${users.length} agents without active/scheduled assignments`);
+        }
         const total = await User_1.User.countDocuments(filter);
         res.json({
             success: true,
@@ -741,12 +790,23 @@ exports.getTeamPerformance = getTeamPerformance;
 // Get agents created by current admin (Superadmin/Subadmin only)
 const getMyCreatedAgents = async (req, res) => {
     try {
-        const { page = 1, limit = 10, status, search } = req.query;
+        const { page = 1, limit = 10, status, search, excludeAssigned, includeTeamInfo, excludeTeamId } = req.query;
         const skip = (Number(page) - 1) * Number(limit);
         const filter = {
             role: 'AGENT',
-            createdBy: req.user?.sub
+            createdBy: req.user?.sub,
         };
+        // Only add status filter if not requesting 'all' statuses
+        if (status && status !== 'all') {
+            filter.status = status;
+        }
+        else if (status !== 'all') {
+            filter.status = 'ACTIVE'; // Default to ACTIVE only if not explicitly requesting 'all'
+        }
+        // Exclude agents who are already members of the specified team
+        if (excludeTeamId) {
+            filter.teamIds = { $ne: excludeTeamId };
+        }
         if (search) {
             filter.$or = [
                 { name: { $regex: search, $options: 'i' } },
@@ -754,14 +814,80 @@ const getMyCreatedAgents = async (req, res) => {
                 { username: { $regex: search, $options: 'i' } }
             ];
         }
-        const agents = await User_1.User.find(filter)
-            .select('-password')
-            .populate('primaryTeamId', 'name')
-            .populate('primaryZoneId', 'name')
-            .populate('createdBy', 'name email')
-            .skip(skip)
-            .limit(Number(limit))
-            .sort({ createdAt: -1 });
+        let agents;
+        if (includeTeamInfo === 'true') {
+            // Enhanced query with team membership information
+            agents = await User_1.User.find(filter)
+                .select('-password')
+                .populate('primaryTeamId', 'name status assignmentStatus')
+                .populate('primaryZoneId', 'name')
+                .populate('createdBy', 'name email')
+                .populate({
+                path: 'teamIds',
+                select: 'name status assignmentStatus',
+                match: { createdBy: req.user?.sub } // Only show teams created by current admin
+            })
+                .skip(skip)
+                .limit(Number(limit))
+                .sort({ createdAt: -1 });
+        }
+        else {
+            // Original simple query
+            agents = await User_1.User.find(filter)
+                .select('-password')
+                .populate('primaryTeamId', 'name')
+                .populate('primaryZoneId', 'name')
+                .populate('createdBy', 'name email')
+                .skip(skip)
+                .limit(Number(limit))
+                .sort({ createdAt: -1 });
+        }
+        // If excludeAssigned is true, filter out agents who have active or scheduled zone assignments
+        if (excludeAssigned === 'true') {
+            console.log('🔍 Filtering out agents with active/scheduled assignments...');
+            const filteredAgents = [];
+            for (const agent of agents) {
+                // Check for active individual zone assignments
+                const hasActiveIndividualAssignments = !!(await AgentZoneAssignment_1.AgentZoneAssignment.exists({
+                    agentId: agent._id,
+                    status: { $nin: ['COMPLETED', 'CANCELLED'] },
+                    effectiveTo: null
+                }));
+                // Check for pending scheduled individual assignments
+                const hasPendingScheduledAssignments = !!(await ScheduledAssignment_1.ScheduledAssignment.exists({
+                    agentId: agent._id,
+                    status: 'PENDING'
+                }));
+                // Check for active team zone assignments (if agent is part of teams)
+                let hasActiveTeamAssignments = false;
+                if (agent.teamIds && agent.teamIds.length > 0) {
+                    hasActiveTeamAssignments = !!(await AgentZoneAssignment_1.AgentZoneAssignment.exists({
+                        teamId: { $in: agent.teamIds },
+                        status: { $nin: ['COMPLETED', 'CANCELLED'] },
+                        effectiveTo: null
+                    }));
+                }
+                // Check for pending scheduled team assignments
+                let hasPendingTeamScheduledAssignments = false;
+                if (agent.teamIds && agent.teamIds.length > 0) {
+                    hasPendingTeamScheduledAssignments = !!(await ScheduledAssignment_1.ScheduledAssignment.exists({
+                        teamId: { $in: agent.teamIds },
+                        status: 'PENDING'
+                    }));
+                }
+                const hasAnyAssignments = hasActiveIndividualAssignments ||
+                    hasPendingScheduledAssignments ||
+                    hasActiveTeamAssignments ||
+                    hasPendingTeamScheduledAssignments;
+                console.log(`🔍 Agent ${agent.email}: hasActiveIndividual=${hasActiveIndividualAssignments}, hasPendingScheduled=${hasPendingScheduledAssignments}, hasActiveTeam=${hasActiveTeamAssignments}, hasPendingTeamScheduled=${hasPendingTeamScheduledAssignments}, hasAnyAssignments=${hasAnyAssignments}`);
+                // Only include agents who don't have any active or scheduled assignments
+                if (!hasAnyAssignments) {
+                    filteredAgents.push(agent);
+                }
+            }
+            agents = filteredAgents;
+            console.log(`✅ Filtered ${agents.length} agents without active/scheduled assignments`);
+        }
         // Calculate correct status and get all zone information
         const agentsWithCorrectStatus = await Promise.all(agents.map(async (agent) => {
             const calculatedStatus = await calculateAgentStatus(agent._id.toString());
@@ -812,12 +938,20 @@ const getMyCreatedAgents = async (req, res) => {
                 ...pendingTeamScheduledAssignments
             ];
             // Create a map of zones from all assignment records (both active and scheduled)
-            const assignmentZones = allAssignments.map(assignment => ({
-                _id: assignment.zoneId._id,
-                name: assignment.zoneId.name,
-                isPrimary: assignment.zoneId._id.toString() === agent.primaryZoneId?._id?.toString(),
-                isScheduled: assignment.status === 'PENDING' // Add flag to identify scheduled assignments
-            }));
+            // Use a Map to deduplicate zones by zoneId
+            const zoneMap = new Map();
+            allAssignments.forEach(assignment => {
+                const zoneId = assignment.zoneId._id.toString();
+                if (!zoneMap.has(zoneId)) {
+                    zoneMap.set(zoneId, {
+                        _id: assignment.zoneId._id,
+                        name: assignment.zoneId.name,
+                        isPrimary: assignment.zoneId._id.toString() === agent.primaryZoneId?._id?.toString(),
+                        isScheduled: assignment.status === 'PENDING' // Add flag to identify scheduled assignments
+                    });
+                }
+            });
+            const assignmentZones = Array.from(zoneMap.values());
             // If no assignment records found, fall back to User model's zoneIds
             let allAssignedZones = assignmentZones;
             if (assignmentZones.length === 0 && agent.zoneIds && agent.zoneIds.length > 0) {
@@ -835,15 +969,56 @@ const getMyCreatedAgents = async (req, res) => {
             const assignmentStatus = hasZoneAssignment ? 'ASSIGNED' : 'UNASSIGNED';
             // Get team information for all teams the user is a member of
             let teamInfo = null;
+            let teamMemberships = null;
             if (agent.teamIds && agent.teamIds.length > 0) {
-                const Team = require('../models/Team').default;
-                const teams = await Team.find({ _id: { $in: agent.teamIds } }).select('name');
-                if (teams.length > 0) {
-                    teamInfo = teams.map((team) => ({
-                        _id: team._id,
-                        name: team.name
-                    }));
+                if (includeTeamInfo === 'true') {
+                    // Enhanced team membership information
+                    teamMemberships = agent.teamIds?.filter((team) => team && typeof team === 'object' && team._id).map((team) => ({
+                        teamId: team._id,
+                        teamName: team.name || 'Unknown Team',
+                        teamStatus: team.status || 'UNKNOWN',
+                        teamAssignmentStatus: team.assignmentStatus || 'UNKNOWN',
+                        isPrimary: agent.primaryTeamId?._id?.toString() === team._id?.toString()
+                    })) || [];
                 }
+                else {
+                    // Simple team information
+                    const Team = require('../models/Team').default;
+                    const teams = await Team.find({ _id: { $in: agent.teamIds } }).select('name');
+                    if (teams.length > 0) {
+                        teamInfo = teams.map((team) => ({
+                            _id: team._id,
+                            name: team.name
+                        }));
+                    }
+                }
+            }
+            // Create assignment summary for enhanced response
+            let assignmentSummary = null;
+            if (includeTeamInfo === 'true') {
+                assignmentSummary = {
+                    totalActiveZones: individualZoneAssignments.length + teamZoneAssignments.length,
+                    totalScheduledZones: pendingIndividualScheduledAssignments.length + pendingTeamScheduledAssignments.length,
+                    hasActiveAssignments: (individualZoneAssignments.length + teamZoneAssignments.length) > 0,
+                    hasScheduledAssignments: (pendingIndividualScheduledAssignments.length + pendingTeamScheduledAssignments.length) > 0,
+                    individualZones: individualZoneAssignments.map((a) => a.zoneId?.name || 'Unknown'),
+                    teamZones: teamZoneAssignments.map((a) => a.zoneId?.name || 'Unknown'),
+                    scheduledZones: [...pendingIndividualScheduledAssignments, ...pendingTeamScheduledAssignments].map((a) => a.zoneId?.name || 'Unknown'),
+                    // Enhanced assignment status details
+                    currentAssignmentStatus: assignmentStatus,
+                    assignmentDetails: {
+                        hasIndividualAssignments: individualZoneAssignments.length > 0,
+                        hasTeamAssignments: teamZoneAssignments.length > 0,
+                        hasScheduledIndividualAssignments: pendingIndividualScheduledAssignments.length > 0,
+                        hasScheduledTeamAssignments: pendingTeamScheduledAssignments.length > 0,
+                        totalAssignments: allAssignments.length,
+                        isFullyAssigned: allAssignments.length > 0,
+                        isPartiallyAssigned: (individualZoneAssignments.length > 0 || teamZoneAssignments.length > 0) &&
+                            (pendingIndividualScheduledAssignments.length > 0 || pendingTeamScheduledAssignments.length > 0),
+                        isOnlyScheduled: (pendingIndividualScheduledAssignments.length > 0 || pendingTeamScheduledAssignments.length > 0) &&
+                            (individualZoneAssignments.length === 0 && teamZoneAssignments.length === 0)
+                    }
+                };
             }
             return {
                 ...agent.toObject(),
@@ -851,7 +1026,9 @@ const getMyCreatedAgents = async (req, res) => {
                 assignmentStatus, // Add assignment status
                 teamZoneInfo, // Add team zone information
                 allAssignedZones, // Add all individual zone assignments
-                teamInfo // Add team information for all teams user is member of
+                teamInfo, // Add team information for all teams user is member of
+                teamMemberships, // Enhanced team membership details
+                assignmentSummary // Detailed assignment summary
             };
         }));
         // Apply status filter after calculating correct status
@@ -930,18 +1107,38 @@ const getTeamOverview = async (req, res) => {
         const totalZones = await Zone.countDocuments({
             createdBy: currentUserId
         });
-        // Get unassigned agents (agents with assignmentStatus: 'UNASSIGNED')
-        const unassignedAgentsCount = await User_1.User.countDocuments({
-            role: 'AGENT',
-            createdBy: currentUserId,
-            assignmentStatus: 'UNASSIGNED'
-        });
-        // Get assigned agents (agents with assignmentStatus: 'ASSIGNED')
-        const assignedAgentsCount = await User_1.User.countDocuments({
-            role: 'AGENT',
-            createdBy: currentUserId,
-            assignmentStatus: 'ASSIGNED'
-        });
+        // Calculate assignment status based on actual zone assignments
+        let assignedAgentsCount = 0;
+        let unassignedAgentsCount = 0;
+        for (const agent of agents) {
+            // Check if agent has any zone assignments (individual or through team)
+            const { AgentZoneAssignment } = require('../models/AgentZoneAssignment');
+            // Check individual zone assignments
+            const individualAssignments = await AgentZoneAssignment.find({
+                agentId: agent._id,
+                status: 'ACTIVE'
+            });
+            // Check team zone assignments in AgentZoneAssignment
+            const teamAssignments = await AgentZoneAssignment.find({
+                teamId: { $in: agent.teamIds || [] },
+                status: 'ACTIVE'
+            });
+            // Check team zone assignments in Zone model (for zones assigned to teams)
+            const { Zone } = require('../models/Zone');
+            const teamZoneAssignments = await Zone.find({
+                teamId: { $in: agent.teamIds || [] },
+                status: { $in: ['ACTIVE', 'SCHEDULED'] }
+            });
+            // Also check if agent has direct zoneIds (for backward compatibility)
+            const hasDirectZones = agent.zoneIds && agent.zoneIds.length > 0;
+            const hasZoneAssignment = individualAssignments.length > 0 || teamAssignments.length > 0 || teamZoneAssignments.length > 0 || hasDirectZones;
+            if (hasZoneAssignment) {
+                assignedAgentsCount++;
+            }
+            else {
+                unassignedAgentsCount++;
+            }
+        }
         res.json({
             success: true,
             data: {
@@ -1188,6 +1385,53 @@ const getDetailedAgent = async (req, res) => {
     }
 };
 exports.getDetailedAgent = getDetailedAgent;
+// Function to refresh assignment statuses for all agents
+const refreshAssignmentStatuses = async (req, res) => {
+    try {
+        const currentUserId = req.user?.sub;
+        const { updateUserAssignmentStatus } = require('../controllers/assignment.controller');
+        // Get all agents created by this admin
+        const agents = await User_1.User.find({
+            role: 'AGENT',
+            createdBy: currentUserId
+        });
+        console.log(`🔄 refreshAssignmentStatuses: Processing ${agents.length} agents`);
+        // Update each agent's assignment status
+        const updatePromises = agents.map(async (agent) => {
+            try {
+                await updateUserAssignmentStatus(agent._id.toString());
+                return { agentId: agent._id, name: agent.name, success: true };
+            }
+            catch (error) {
+                console.error(`❌ Failed to update assignment status for agent ${agent.name}:`, error);
+                return { agentId: agent._id, name: agent.name, success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+            }
+        });
+        const results = await Promise.all(updatePromises);
+        const successful = results.filter(r => r.success);
+        const failed = results.filter(r => !r.success);
+        console.log(`✅ refreshAssignmentStatuses: Updated ${successful.length} agents, ${failed.length} failed`);
+        res.json({
+            success: true,
+            message: 'Assignment statuses refreshed successfully',
+            data: {
+                totalAgents: agents.length,
+                successful: successful.length,
+                failed: failed.length,
+                results
+            }
+        });
+    }
+    catch (error) {
+        console.error('❌ Error refreshing assignment statuses:', error);
+        res.status(500).json({
+            success: false,
+            message: 'Failed to refresh assignment statuses',
+            error: error instanceof Error ? error.message : 'Unknown error'
+        });
+    }
+};
+exports.refreshAssignmentStatuses = refreshAssignmentStatuses;
 // Function to refresh all agent and team statuses based on zone assignments
 const refreshAllStatuses = async (req, res) => {
     try {

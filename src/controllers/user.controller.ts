@@ -1,52 +1,59 @@
-import { Request, Response } from 'express';
-import { User, IUser } from '../models/User';
-import { Team } from '../models/Team';
-import { Zone } from '../models/Zone';
-import { AgentZoneAssignment } from '../models/AgentZoneAssignment';
-import { AgentTeamAssignment } from '../models/AgentTeamAssignment';
-import { ScheduledAssignment } from '../models/ScheduledAssignment';
-import { AuthRequest } from '../middleware/auth';
-import bcrypt from 'bcryptjs';
-import mongoose from 'mongoose';
+import { Request, Response } from "express";
+import { User, IUser } from "../models/User";
+import { Team } from "../models/Team";
+import { Zone } from "../models/Zone";
+import { Resident } from "../models/Resident";
+import { AgentZoneAssignment } from "../models/AgentZoneAssignment";
+import { AgentTeamAssignment } from "../models/AgentTeamAssignment";
+import { ScheduledAssignment } from "../models/ScheduledAssignment";
+import { AuthRequest } from "../middleware/auth";
+import bcrypt from "bcryptjs";
+import mongoose from "mongoose";
 
 // Helper function to calculate team status based on zone assignments
-const calculateTeamStatus = async (teamId: string): Promise<'ACTIVE' | 'INACTIVE'> => {
+const calculateTeamStatus = async (
+  teamId: string
+): Promise<"ACTIVE" | "INACTIVE"> => {
   try {
     // Check if team has any zone assignments
     const teamZoneAssignments = await AgentZoneAssignment.find({
       teamId: teamId,
-      status: { $in: ['ACTIVE', 'COMPLETED'] },
-      effectiveTo: null
+      status: { $in: ["ACTIVE", "COMPLETED"] },
+      effectiveTo: null,
     });
 
     // Team is ACTIVE if it has any zone assignments
     const hasZoneAssignment = teamZoneAssignments.length > 0;
-    
-    return hasZoneAssignment ? 'ACTIVE' : 'INACTIVE';
+
+    return hasZoneAssignment ? "ACTIVE" : "INACTIVE";
   } catch (error) {
-    console.error('Error calculating team status:', error);
-    return 'INACTIVE';
+    console.error("Error calculating team status:", error);
+    return "INACTIVE";
   }
 };
 
 // Helper function to calculate agent status based on zone assignments (individual and team)
-const calculateAgentStatus = async (agentId: string): Promise<'ACTIVE' | 'INACTIVE'> => {
+const calculateAgentStatus = async (
+  agentId: string
+): Promise<"ACTIVE" | "INACTIVE"> => {
   try {
     const agent = await User.findById(agentId);
-    if (!agent || agent.role !== 'AGENT') return 'INACTIVE';
+    if (!agent || agent.role !== "AGENT") return "INACTIVE";
 
     // Import ScheduledAssignment model
-    const { ScheduledAssignment } = require('../models/ScheduledAssignment');
+    const { ScheduledAssignment } = require("../models/ScheduledAssignment");
 
     // Check individual zone assignments
-    const hasIndividualZoneAssignment = agent.zoneIds && agent.zoneIds.length > 0;
-    const hasIndividualPrimaryZone = agent.primaryZoneId !== null && agent.primaryZoneId !== undefined;
+    const hasIndividualZoneAssignment =
+      agent.zoneIds && agent.zoneIds.length > 0;
+    const hasIndividualPrimaryZone =
+      agent.primaryZoneId !== null && agent.primaryZoneId !== undefined;
 
     // Check team zone assignments (exclude COMPLETED and CANCELLED)
     const teamZoneAssignments = await AgentZoneAssignment.find({
       teamId: { $in: agent.teamIds },
-      status: { $nin: ['COMPLETED', 'CANCELLED'] },
-      effectiveTo: null
+      status: { $nin: ["COMPLETED", "CANCELLED"] },
+      effectiveTo: null,
     });
 
     const hasTeamZoneAssignment = teamZoneAssignments.length > 0;
@@ -54,27 +61,31 @@ const calculateAgentStatus = async (agentId: string): Promise<'ACTIVE' | 'INACTI
     // Check individual zone assignments (exclude COMPLETED and CANCELLED)
     const individualZoneAssignments = await AgentZoneAssignment.find({
       agentId: agent._id,
-      status: { $nin: ['COMPLETED', 'CANCELLED'] },
-      effectiveTo: null
+      status: { $nin: ["COMPLETED", "CANCELLED"] },
+      effectiveTo: null,
     });
 
-    const hasActiveIndividualZoneAssignment = individualZoneAssignments.length > 0;
+    const hasActiveIndividualZoneAssignment =
+      individualZoneAssignments.length > 0;
 
     // Check PENDING scheduled assignments (individual)
-    const pendingIndividualScheduledAssignments = await ScheduledAssignment.find({
-      agentId: agent._id,
-      status: 'PENDING'
-    });
+    const pendingIndividualScheduledAssignments =
+      await ScheduledAssignment.find({
+        agentId: agent._id,
+        status: "PENDING",
+      });
 
-    const hasPendingIndividualScheduledAssignment = pendingIndividualScheduledAssignments.length > 0;
+    const hasPendingIndividualScheduledAssignment =
+      pendingIndividualScheduledAssignments.length > 0;
 
     // Check PENDING scheduled assignments (team)
     const pendingTeamScheduledAssignments = await ScheduledAssignment.find({
       teamId: { $in: agent.teamIds },
-      status: 'PENDING'
+      status: "PENDING",
     });
 
-    const hasPendingTeamScheduledAssignment = pendingTeamScheduledAssignments.length > 0;
+    const hasPendingTeamScheduledAssignment =
+      pendingTeamScheduledAssignments.length > 0;
 
     // Agent is ACTIVE if:
     // 1. Has individual zone assignment (primaryZoneId or zoneIds), OR
@@ -83,18 +94,19 @@ const calculateAgentStatus = async (agentId: string): Promise<'ACTIVE' | 'INACTI
     // 4. Has PENDING scheduled individual assignments, OR
     // 5. Is part of a team that has PENDING scheduled assignments
     // 6. OR if they were previously ACTIVE (don't automatically deactivate)
-    const shouldBeActive = hasIndividualZoneAssignment || 
-                          hasIndividualPrimaryZone || 
-                          hasActiveIndividualZoneAssignment || 
-                          hasTeamZoneAssignment ||
-                          hasPendingIndividualScheduledAssignment ||
-                          hasPendingTeamScheduledAssignment ||
-                          agent.status === 'ACTIVE'; // Keep ACTIVE status if already set
+    const shouldBeActive =
+      hasIndividualZoneAssignment ||
+      hasIndividualPrimaryZone ||
+      hasActiveIndividualZoneAssignment ||
+      hasTeamZoneAssignment ||
+      hasPendingIndividualScheduledAssignment ||
+      hasPendingTeamScheduledAssignment ||
+      agent.status === "ACTIVE"; // Keep ACTIVE status if already set
 
-    return shouldBeActive ? 'ACTIVE' : 'INACTIVE';
+    return shouldBeActive ? "ACTIVE" : "INACTIVE";
   } catch (error) {
-    console.error('Error calculating agent status:', error);
-    return 'INACTIVE';
+    console.error("Error calculating agent status:", error);
+    return "INACTIVE";
   }
 };
 
@@ -102,17 +114,19 @@ const calculateAgentStatus = async (agentId: string): Promise<'ACTIVE' | 'INACTI
 export const updateAgentStatus = async (agentId: string) => {
   try {
     const agent = await User.findById(agentId);
-    if (!agent || agent.role !== 'AGENT') return;
+    if (!agent || agent.role !== "AGENT") return;
 
     const calculatedStatus = await calculateAgentStatus(agentId);
-    
+
     // Only update if the agent should be ACTIVE (don't automatically deactivate)
-    if (calculatedStatus === 'ACTIVE' && agent.status !== 'ACTIVE') {
+    if (calculatedStatus === "ACTIVE" && agent.status !== "ACTIVE") {
       await User.findByIdAndUpdate(agentId, { status: calculatedStatus });
-      console.log(`Agent ${agent.name} (${agentId}) status updated to ${calculatedStatus}`);
+      console.log(
+        `Agent ${agent.name} (${agentId}) status updated to ${calculatedStatus}`
+      );
     }
   } catch (error) {
-    console.error('Error updating agent status:', error);
+    console.error("Error updating agent status:", error);
   }
 };
 
@@ -122,14 +136,17 @@ export const updateAgentStatusOnZoneChange = async (agentId: string) => {
 };
 
 // Update agent zone assignments and automatically update status
-export const updateAgentZoneAssignment = async (req: AuthRequest, res: Response) => {
+export const updateAgentZoneAssignment = async (
+  req: AuthRequest,
+  res: Response
+) => {
   try {
     const { agentId } = req.params;
-    
+
     if (!agentId) {
       return res.status(400).json({
         success: false,
-        message: 'Agent ID is required'
+        message: "Agent ID is required",
       });
     }
 
@@ -137,10 +154,10 @@ export const updateAgentZoneAssignment = async (req: AuthRequest, res: Response)
 
     // Validate agent exists
     const agent = await User.findById(agentId);
-    if (!agent || agent.role !== 'AGENT') {
+    if (!agent || agent.role !== "AGENT") {
       return res.status(404).json({
         success: false,
-        message: 'Agent not found'
+        message: "Agent not found",
       });
     }
 
@@ -149,16 +166,15 @@ export const updateAgentZoneAssignment = async (req: AuthRequest, res: Response)
     if (primaryZoneId !== undefined) updateData.primaryZoneId = primaryZoneId;
     if (zoneIds !== undefined) updateData.zoneIds = zoneIds;
 
-    const updatedAgent = await User.findByIdAndUpdate(
-      agentId,
-      updateData,
-      { new: true, runValidators: true }
-    );
+    const updatedAgent = await User.findByIdAndUpdate(agentId, updateData, {
+      new: true,
+      runValidators: true,
+    });
 
     if (!updatedAgent) {
       return res.status(404).json({
         success: false,
-        message: 'Agent not found'
+        message: "Agent not found",
       });
     }
 
@@ -166,19 +182,19 @@ export const updateAgentZoneAssignment = async (req: AuthRequest, res: Response)
     await updateAgentStatus(agentId);
 
     // Get the updated agent with new status
-    const finalAgent = await User.findById(agentId).select('-password');
+    const finalAgent = await User.findById(agentId).select("-password");
 
     res.json({
       success: true,
-      message: 'Agent zone assignment updated successfully',
-      data: finalAgent
+      message: "Agent zone assignment updated successfully",
+      data: finalAgent,
     });
   } catch (error) {
-    console.error('Error updating agent zone assignment:', error);
+    console.error("Error updating agent zone assignment:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update agent zone assignment',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      message: "Failed to update agent zone assignment",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
@@ -186,27 +202,28 @@ export const updateAgentZoneAssignment = async (req: AuthRequest, res: Response)
 // Create a new user (Superadmin only)
 export const createUser = async (req: AuthRequest, res: Response) => {
   try {
-    const { 
-      name, 
-      email, 
-      username, 
-      contactNumber, 
-      password, 
-      role, 
-      primaryTeamId, 
-      primaryZoneId, 
-      teamIds, 
-      zoneIds 
+    const {
+      name,
+      email,
+      username,
+      contactNumber,
+      password,
+      role,
+      primaryTeamId,
+      primaryZoneId,
+      teamIds,
+      zoneIds,
     } = req.body;
 
-    console.log('createUser', req.body)
+    console.log("createUser", req.body);
 
     // Check if email already exists
     const existingUser = await User.findOne({ email });
     if (existingUser) {
       return res.status(409).json({
         success: false,
-        message: 'An account with this email address already exists. Please use a different email.'
+        message:
+          "An account with this email address already exists. Please use a different email.",
       });
     }
 
@@ -216,14 +233,11 @@ export const createUser = async (req: AuthRequest, res: Response) => {
       if (existingUsername) {
         return res.status(409).json({
           success: false,
-          message: 'This username is already taken. Please choose a different username.'
+          message:
+            "This username is already taken. Please choose a different username.",
         });
       }
     }
-
-    // Hash password
-    const saltRounds = Number(process.env.BCRYPT_SALT_ROUNDS) || 12;
-    const hashedPassword = await bcrypt.hash(password, saltRounds);
 
     // Prepare team and zone arrays
     const finalTeamIds = teamIds || [];
@@ -239,14 +253,14 @@ export const createUser = async (req: AuthRequest, res: Response) => {
 
     // Determine initial status based on zone assignment
     const hasZoneAssignment = finalZoneIds.length > 0 || primaryZoneId;
-    const initialStatus = hasZoneAssignment ? 'ACTIVE' : 'INACTIVE';
+    const initialStatus = hasZoneAssignment ? "ACTIVE" : "INACTIVE";
 
     const user = new User({
       name,
       email,
       username,
       contactNumber,
-      password: hashedPassword,
+      password: password, // Pre-save hook will hash this automatically
       originalPassword: password, // Store original password for admin viewing
       role,
       status: initialStatus, // Set status based on zone assignment
@@ -254,34 +268,38 @@ export const createUser = async (req: AuthRequest, res: Response) => {
       primaryZoneId,
       teamIds: finalTeamIds,
       zoneIds: finalZoneIds,
-      createdBy: req.user?.sub // Set the creator
+      createdBy: req.user?.sub, // Set the creator
     });
 
     await user.save();
 
     // Create team assignments if teams are provided
     if (finalTeamIds.length > 0) {
-      const teamAssignments = finalTeamIds.map((teamId: mongoose.Types.ObjectId) => ({
-        agentId: user._id,
-        teamId,
-        effectiveFrom: new Date(),
-        status: 'ACTIVE' as const,
-        assignedBy: req.user?.sub
-      }));
-      
+      const teamAssignments = finalTeamIds.map(
+        (teamId: mongoose.Types.ObjectId) => ({
+          agentId: user._id,
+          teamId,
+          effectiveFrom: new Date(),
+          status: "ACTIVE" as const,
+          assignedBy: req.user?.sub,
+        })
+      );
+
       await AgentTeamAssignment.insertMany(teamAssignments);
     }
 
     // Create zone assignments if zones are provided
     if (finalZoneIds.length > 0) {
-      const zoneAssignments = finalZoneIds.map((zoneId: mongoose.Types.ObjectId) => ({
-        agentId: user._id,
-        zoneId,
-        effectiveFrom: new Date(),
-        status: 'ACTIVE' as const,
-        assignedBy: req.user?.sub
-      }));
-      
+      const zoneAssignments = finalZoneIds.map(
+        (zoneId: mongoose.Types.ObjectId) => ({
+          agentId: user._id,
+          zoneId,
+          effectiveFrom: new Date(),
+          status: "ACTIVE" as const,
+          assignedBy: req.user?.sub,
+        })
+      );
+
       await AgentZoneAssignment.insertMany(zoneAssignments);
     }
 
@@ -291,15 +309,16 @@ export const createUser = async (req: AuthRequest, res: Response) => {
 
     res.status(201).json({
       success: true,
-      message: 'Team member created successfully',
-      data: userResponse
+      message: "Team member created successfully",
+      data: userResponse,
     });
   } catch (error) {
-    console.error('Error creating user:', error);
+    console.error("Error creating user:", error);
     res.status(500).json({
       success: false,
-      message: 'Unable to create team member. Please try again or contact support if the problem persists.',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      message:
+        "Unable to create team member. Please try again or contact support if the problem persists.",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
@@ -308,13 +327,23 @@ export const createUser = async (req: AuthRequest, res: Response) => {
 export const updateUser = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    const { name, email, username, contactNumber, password, role, status, teamId, zoneId } = req.body;
+    const {
+      name,
+      email,
+      username,
+      contactNumber,
+      password,
+      role,
+      status,
+      teamId,
+      zoneId,
+    } = req.body;
 
     const user = await User.findById(id);
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
@@ -323,16 +352,16 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
     const userToUpdateRole = user.role;
 
     // SUPERADMIN can update anyone
-    if (currentUserRole === 'SUPERADMIN') {
+    if (currentUserRole === "SUPERADMIN") {
       // Allow update
     }
     // SUBADMIN can only update agents they created
-    else if (currentUserRole === 'SUBADMIN') {
+    else if (currentUserRole === "SUBADMIN") {
       // Check if the user to update is an agent
-      if (userToUpdateRole !== 'AGENT') {
+      if (userToUpdateRole !== "AGENT") {
         return res.status(403).json({
           success: false,
-          message: 'You can only update agents'
+          message: "You can only update agents",
         });
       }
 
@@ -340,7 +369,7 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
       if (user.createdBy?.toString() !== req.user?.sub) {
         return res.status(403).json({
           success: false,
-          message: 'You can only update agents you created'
+          message: "You can only update agents you created",
         });
       }
 
@@ -348,7 +377,7 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
       if (role || status) {
         return res.status(403).json({
           success: false,
-          message: 'You cannot change role or status'
+          message: "You cannot change role or status",
         });
       }
     }
@@ -356,7 +385,7 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
     else {
       return res.status(403).json({
         success: false,
-        message: 'Insufficient permissions to update users'
+        message: "Insufficient permissions to update users",
       });
     }
 
@@ -366,7 +395,7 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
       if (existingUser) {
         return res.status(409).json({
           success: false,
-          message: 'Email already exists'
+          message: "Email already exists",
         });
       }
     }
@@ -377,7 +406,7 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
       if (existingUser) {
         return res.status(409).json({
           success: false,
-          message: 'Username already exists'
+          message: "Username already exists",
         });
       }
     }
@@ -393,38 +422,36 @@ export const updateUser = async (req: AuthRequest, res: Response) => {
     if (teamId) updateData.teamId = teamId;
     if (zoneId) updateData.zoneId = zoneId;
 
-    // Handle password update
+    // Handle password update (findByIdAndUpdate doesn't trigger pre-save hook)
     if (password) {
       const saltRounds = 12;
-      const hashedPassword = await bcrypt.hash(password, saltRounds);
-      updateData.password = hashedPassword;
+      updateData.password = await bcrypt.hash(password, saltRounds);
       updateData.originalPassword = password; // Store original password for admin viewing
     }
 
-    const updatedUser = await User.findByIdAndUpdate(
-      id,
-      updateData,
-      { new: true, runValidators: true }
-    ).select('-password');
+    const updatedUser = await User.findByIdAndUpdate(id, updateData, {
+      new: true,
+      runValidators: true,
+    }).select("-password");
 
     if (!updatedUser) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
     res.json({
       success: true,
-      message: 'User updated successfully',
-      data: updatedUser
+      message: "User updated successfully",
+      data: updatedUser,
     });
   } catch (error) {
-    console.error('Error updating user:', error);
+    console.error("Error updating user:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update user',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      message: "Failed to update user",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
@@ -438,7 +465,7 @@ export const deleteUser = async (req: AuthRequest, res: Response) => {
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
@@ -446,7 +473,7 @@ export const deleteUser = async (req: AuthRequest, res: Response) => {
     if ((user as any)._id.toString() === req.user?.sub) {
       return res.status(400).json({
         success: false,
-        message: 'Cannot delete your own account'
+        message: "Cannot delete your own account",
       });
     }
 
@@ -455,16 +482,16 @@ export const deleteUser = async (req: AuthRequest, res: Response) => {
     const userToDeleteRole = user.role;
 
     // SUPERADMIN can delete anyone
-    if (currentUserRole === 'SUPERADMIN') {
+    if (currentUserRole === "SUPERADMIN") {
       // Allow deletion
     }
     // SUBADMIN can only delete agents they created
-    else if (currentUserRole === 'SUBADMIN') {
+    else if (currentUserRole === "SUBADMIN") {
       // Check if the user to delete is an agent
-      if (userToDeleteRole !== 'AGENT') {
+      if (userToDeleteRole !== "AGENT") {
         return res.status(403).json({
           success: false,
-          message: 'You can only delete agents'
+          message: "You can only delete agents",
         });
       }
 
@@ -472,7 +499,7 @@ export const deleteUser = async (req: AuthRequest, res: Response) => {
       if (user.createdBy?.toString() !== req.user?.sub) {
         return res.status(403).json({
           success: false,
-          message: 'You can only delete agents you created'
+          message: "You can only delete agents you created",
         });
       }
     }
@@ -480,7 +507,7 @@ export const deleteUser = async (req: AuthRequest, res: Response) => {
     else {
       return res.status(403).json({
         success: false,
-        message: 'Insufficient permissions to delete users'
+        message: "Insufficient permissions to delete users",
       });
     }
 
@@ -488,14 +515,14 @@ export const deleteUser = async (req: AuthRequest, res: Response) => {
 
     res.json({
       success: true,
-      message: 'User deleted successfully'
+      message: "User deleted successfully",
     });
   } catch (error) {
-    console.error('Error deleting user:', error);
+    console.error("Error deleting user:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to delete user',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      message: "Failed to delete user",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
@@ -505,24 +532,24 @@ export const getUserById = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
 
-    const user = await User.findById(id).select('-password');
+    const user = await User.findById(id).select("-password");
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
     res.json({
       success: true,
-      data: user
+      data: user,
     });
   } catch (error) {
-    console.error('Error getting user:', error);
+    console.error("Error getting user:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get user',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      message: "Failed to get user",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
@@ -530,7 +557,15 @@ export const getUserById = async (req: AuthRequest, res: Response) => {
 // List all users with pagination (Superadmin/Subadmin only)
 export const listUsers = async (req: AuthRequest, res: Response) => {
   try {
-    const { page = 1, limit = 10, role, status, teamId, search, excludeAssigned } = req.query;
+    const {
+      page = 1,
+      limit = 10,
+      role,
+      status,
+      teamId,
+      search,
+      excludeAssigned,
+    } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
 
     const filter: any = {};
@@ -541,82 +576,95 @@ export const listUsers = async (req: AuthRequest, res: Response) => {
     // Add search functionality
     if (search) {
       filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { username: { $regex: search, $options: 'i' } }
+        { name: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
+        { username: { $regex: search, $options: "i" } },
       ];
     }
 
     // If user is not superadmin, only show users they created
-    if (req.user?.role !== 'SUPERADMIN') {
+    if (req.user?.role !== "SUPERADMIN") {
       filter.createdBy = req.user?.sub;
     }
 
     let users = await User.find(filter)
-      .select('-password')
-      .populate('primaryTeamId', 'name')
-      .populate('primaryZoneId', 'name')
+      .select("-password")
+      .populate("primaryTeamId", "name")
+      .populate("primaryZoneId", "name")
       .skip(skip)
       .limit(Number(limit))
       .sort({ createdAt: -1 });
 
     // If excludeAssigned is true, filter out agents who have active or scheduled zone assignments
-    if (excludeAssigned === 'true' && role === 'AGENT') {
-      console.log('🔍 Filtering out agents with active/scheduled assignments...');
-      
-      const { AgentZoneAssignment } = require('../models/AgentZoneAssignment');
-      const { ScheduledAssignment } = require('../models/ScheduledAssignment');
-      
+    if (excludeAssigned === "true" && role === "AGENT") {
+      console.log(
+        "🔍 Filtering out agents with active/scheduled assignments..."
+      );
+
+      const { AgentZoneAssignment } = require("../models/AgentZoneAssignment");
+      const { ScheduledAssignment } = require("../models/ScheduledAssignment");
+
       const filteredUsers = [];
-      
+
       for (const user of users) {
         // Check for active individual zone assignments
-        const hasActiveIndividualAssignments = await AgentZoneAssignment.exists({
-          agentId: user._id,
-          status: { $nin: ['COMPLETED', 'CANCELLED'] },
-          effectiveTo: null
-        });
-        
+        const hasActiveIndividualAssignments = await AgentZoneAssignment.exists(
+          {
+            agentId: user._id,
+            status: { $nin: ["COMPLETED", "CANCELLED"] },
+            effectiveTo: null,
+          }
+        );
+
         // Check for pending scheduled individual assignments
-        const hasPendingScheduledAssignments = await ScheduledAssignment.exists({
-          agentId: user._id,
-          status: 'PENDING'
-        });
-        
+        const hasPendingScheduledAssignments = await ScheduledAssignment.exists(
+          {
+            agentId: user._id,
+            status: "PENDING",
+          }
+        );
+
         // Check for active team zone assignments (if agent is part of teams)
         let hasActiveTeamAssignments = false;
         if (user.teamIds && user.teamIds.length > 0) {
           hasActiveTeamAssignments = await AgentZoneAssignment.exists({
             teamId: { $in: user.teamIds },
-            status: { $nin: ['COMPLETED', 'CANCELLED'] },
-            effectiveTo: null
+            status: { $nin: ["COMPLETED", "CANCELLED"] },
+            effectiveTo: null,
           });
         }
-        
+
         // Check for pending scheduled team assignments
         let hasPendingTeamScheduledAssignments = false;
         if (user.teamIds && user.teamIds.length > 0) {
-          hasPendingTeamScheduledAssignments = await ScheduledAssignment.exists({
-            teamId: { $in: user.teamIds },
-            status: 'PENDING'
-          });
+          hasPendingTeamScheduledAssignments = await ScheduledAssignment.exists(
+            {
+              teamId: { $in: user.teamIds },
+              status: "PENDING",
+            }
+          );
         }
-        
-        const hasAnyAssignments = hasActiveIndividualAssignments || 
-                                 hasPendingScheduledAssignments || 
-                                 hasActiveTeamAssignments || 
-                                 hasPendingTeamScheduledAssignments;
-        
-        console.log(`🔍 Agent ${user.email}: hasActiveIndividual=${hasActiveIndividualAssignments}, hasPendingScheduled=${hasPendingScheduledAssignments}, hasActiveTeam=${hasActiveTeamAssignments}, hasPendingTeamScheduled=${hasPendingTeamScheduledAssignments}, hasAnyAssignments=${hasAnyAssignments}`);
-        
+
+        const hasAnyAssignments =
+          hasActiveIndividualAssignments ||
+          hasPendingScheduledAssignments ||
+          hasActiveTeamAssignments ||
+          hasPendingTeamScheduledAssignments;
+
+        console.log(
+          `🔍 Agent ${user.email}: hasActiveIndividual=${hasActiveIndividualAssignments}, hasPendingScheduled=${hasPendingScheduledAssignments}, hasActiveTeam=${hasActiveTeamAssignments}, hasPendingTeamScheduled=${hasPendingTeamScheduledAssignments}, hasAnyAssignments=${hasAnyAssignments}`
+        );
+
         // Only include agents who don't have any active or scheduled assignments
         if (!hasAnyAssignments) {
           filteredUsers.push(user);
         }
       }
-      
+
       users = filteredUsers;
-      console.log(`✅ Filtered ${users.length} agents without active/scheduled assignments`);
+      console.log(
+        `✅ Filtered ${users.length} agents without active/scheduled assignments`
+      );
     }
 
     const total = await User.countDocuments(filter);
@@ -628,15 +676,15 @@ export const listUsers = async (req: AuthRequest, res: Response) => {
         page: Number(page),
         limit: Number(limit),
         total,
-        pages: Math.ceil(total / Number(limit))
-      }
+        pages: Math.ceil(total / Number(limit)),
+      },
     });
   } catch (error) {
-    console.error('Error listing users:', error);
+    console.error("Error listing users:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to list users',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      message: "Failed to list users",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
@@ -646,22 +694,22 @@ export const getMyTeamMembers = async (req: AuthRequest, res: Response) => {
   try {
     const teamMembers = await User.find({
       teamIds: req.user?.teamIds,
-      role: { $in: ['SUBADMIN', 'AGENT'] }
+      role: { $in: ["SUBADMIN", "AGENT"] },
     })
-      .select('-password')
-      .populate('zoneId', 'name')
+      .select("-password")
+      .populate("zoneId", "name")
       .sort({ name: 1 });
 
     res.json({
       success: true,
-      data: teamMembers
+      data: teamMembers,
     });
   } catch (error) {
-    console.error('Error getting team members:', error);
+    console.error("Error getting team members:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get team members',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      message: "Failed to get team members",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
@@ -673,10 +721,10 @@ export const assignAgentToTeam = async (req: AuthRequest, res: Response) => {
 
     // Validate agent exists
     const agent = await User.findById(agentId);
-    if (!agent || agent.role !== 'AGENT') {
+    if (!agent || agent.role !== "AGENT") {
       return res.status(404).json({
         success: false,
-        message: 'Agent not found'
+        message: "Agent not found",
       });
     }
 
@@ -685,7 +733,7 @@ export const assignAgentToTeam = async (req: AuthRequest, res: Response) => {
     if (!team) {
       return res.status(404).json({
         success: false,
-        message: 'Team not found'
+        message: "Team not found",
       });
     }
 
@@ -694,14 +742,14 @@ export const assignAgentToTeam = async (req: AuthRequest, res: Response) => {
 
     res.json({
       success: true,
-      message: 'Agent assigned to team successfully'
+      message: "Agent assigned to team successfully",
     });
   } catch (error) {
-    console.error('Error assigning agent to team:', error);
+    console.error("Error assigning agent to team:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to assign agent to team',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      message: "Failed to assign agent to team",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
@@ -710,27 +758,27 @@ export const assignAgentToTeam = async (req: AuthRequest, res: Response) => {
 export const getMyProfile = async (req: AuthRequest, res: Response) => {
   try {
     const user = await User.findById(req.user?.sub)
-      .select('-password')
-      .populate('teamId', 'name')
-      .populate('zoneId', 'name');
+      .select("-password")
+      .populate("teamId", "name")
+      .populate("zoneId", "name");
 
     if (!user) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
     res.json({
       success: true,
-      data: user
+      data: user,
     });
   } catch (error) {
-    console.error('Error getting profile:', error);
+    console.error("Error getting profile:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get profile',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      message: "Failed to get profile",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
@@ -742,11 +790,14 @@ export const updateMyProfile = async (req: AuthRequest, res: Response) => {
 
     // Check if email already exists (if email is being updated)
     if (email) {
-      const existingUser = await User.findOne({ email, _id: { $ne: req.user?.sub } });
+      const existingUser = await User.findOne({
+        email,
+        _id: { $ne: req.user?.sub },
+      });
       if (existingUser) {
         return res.status(409).json({
           success: false,
-          message: 'Email already exists'
+          message: "Email already exists",
         });
       }
     }
@@ -755,26 +806,26 @@ export const updateMyProfile = async (req: AuthRequest, res: Response) => {
       req.user?.sub,
       { name, email },
       { new: true, runValidators: true }
-    ).select('-password');
+    ).select("-password");
 
     if (!updatedUser) {
       return res.status(404).json({
         success: false,
-        message: 'User not found'
+        message: "User not found",
       });
     }
 
     res.json({
       success: true,
-      message: 'Profile updated successfully',
-      data: updatedUser
+      message: "Profile updated successfully",
+      data: updatedUser,
     });
   } catch (error) {
-    console.error('Error updating profile:', error);
+    console.error("Error updating profile:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to update profile',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      message: "Failed to update profile",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
@@ -782,25 +833,306 @@ export const updateMyProfile = async (req: AuthRequest, res: Response) => {
 // Get my zone info (Agent only)
 export const getMyZoneInfo = async (req: AuthRequest, res: Response) => {
   try {
-    const user = await User.findById(req.user?.sub).populate('primaryZoneId');
-    
+    const user = await User.findById(req.user?.sub).populate("primaryZoneId");
+
     if (!user || !user.primaryZoneId) {
       return res.status(404).json({
         success: false,
-        message: 'No zone assigned'
+        message: "No zone assigned",
       });
     }
 
     res.json({
       success: true,
-      data: user.primaryZoneId
+      data: user.primaryZoneId,
     });
   } catch (error) {
-    console.error('Error getting zone info:', error);
+    console.error("Error getting zone info:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get zone info',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      message: "Failed to get zone info",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+// Get all territories assigned to logged-in agent (Agent only)
+export const getMyTerritories = async (req: AuthRequest, res: Response) => {
+  try {
+    const agentId = req.user?.sub;
+
+    if (!agentId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
+    // Get agent information
+    const agent = await User.findById(agentId);
+    if (!agent || agent.role !== "AGENT") {
+      return res.status(404).json({
+        success: false,
+        message: "Agent not found",
+      });
+    }
+
+    console.log(
+      `\n🔍 getMyTerritories: Fetching territories for agent ${agent.name} (${agentId})`
+    );
+    console.log(
+      `📋 getMyTerritories: Agent teams: [${agent.teamIds.join(", ")}]`
+    );
+    console.log(
+      `📋 getMyTerritories: Agent primaryZoneId: ${
+        agent.primaryZoneId || "None"
+      }`
+    );
+
+    // Import ScheduledAssignment model
+    const { ScheduledAssignment } = require("../models/ScheduledAssignment");
+
+    // 1. Get all individual zone assignments for this agent
+    console.log(`🔍 getMyTerritories: Fetching individual assignments...`);
+    const individualZoneAssignments = await AgentZoneAssignment.find({
+      agentId: agent._id,
+      status: { $nin: ["COMPLETED", "CANCELLED"] },
+      effectiveTo: null,
+    }).populate("zoneId");
+    console.log(
+      `📋 getMyTerritories: Found ${individualZoneAssignments.length} individual assignments`
+    );
+
+    // 2. Get all team zone assignments for this agent's teams
+    console.log(`🔍 getMyTerritories: Fetching team assignments...`);
+    const teamZoneAssignments = await AgentZoneAssignment.find({
+      teamId: { $in: agent.teamIds },
+      status: { $nin: ["COMPLETED", "CANCELLED"] },
+      effectiveTo: null,
+    })
+      .populate("zoneId")
+      .populate("teamId", "name");
+    console.log(
+      `📋 getMyTerritories: Found ${teamZoneAssignments.length} team assignments`
+    );
+
+    // 3. Get all PENDING scheduled individual assignments
+    console.log(
+      `🔍 getMyTerritories: Fetching scheduled individual assignments...`
+    );
+    const pendingIndividualScheduledAssignments =
+      await ScheduledAssignment.find({
+        agentId: agent._id,
+        status: "PENDING",
+      }).populate("zoneId");
+    console.log(
+      `📋 getMyTerritories: Found ${pendingIndividualScheduledAssignments.length} scheduled individual assignments`
+    );
+
+    // 4. Get all PENDING scheduled team assignments
+    console.log(`🔍 getMyTerritories: Fetching scheduled team assignments...`);
+    const pendingTeamScheduledAssignments = await ScheduledAssignment.find({
+      teamId: { $in: agent.teamIds },
+      status: "PENDING",
+    })
+      .populate("zoneId")
+      .populate("teamId", "name");
+    console.log(
+      `📋 getMyTerritories: Found ${pendingTeamScheduledAssignments.length} scheduled team assignments`
+    );
+
+    // Combine all assignments (active + scheduled)
+    const allAssignments = [
+      ...individualZoneAssignments.map((a) => ({
+        assignment: a,
+        assignmentType: "individual" as const,
+        isScheduled: false,
+        teamName: null,
+      })),
+      ...teamZoneAssignments.map((a) => ({
+        assignment: a,
+        assignmentType: "team" as const,
+        isScheduled: false,
+        teamName: (a.teamId as any)?.name || "Unknown Team",
+      })),
+      ...pendingIndividualScheduledAssignments.map((a: any) => ({
+        assignment: a,
+        assignmentType: "individual" as const,
+        isScheduled: true,
+        teamName: null,
+      })),
+      ...pendingTeamScheduledAssignments.map((a: any) => ({
+        assignment: a,
+        assignmentType: "team" as const,
+        isScheduled: true,
+        teamName: (a.teamId as any)?.name || "Unknown Team",
+      })),
+    ];
+
+    console.log(
+      `📋 getMyTerritories: Total assignments before deduplication: ${allAssignments.length}`
+    );
+
+    // Create a map to deduplicate zones by zoneId
+    const zoneMap = new Map();
+
+    allAssignments.forEach((item) => {
+      const zoneId = item.assignment.zoneId._id.toString();
+
+      // If zone not in map or current assignment is not scheduled (prefer active over scheduled)
+      if (
+        !zoneMap.has(zoneId) ||
+        (!item.isScheduled && zoneMap.get(zoneId).isScheduled)
+      ) {
+        zoneMap.set(zoneId, item);
+      }
+    });
+
+    console.log(
+      `📋 getMyTerritories: Unique territories after deduplication: ${zoneMap.size}`
+    );
+
+    // Build territory data with statistics
+    const territories = await Promise.all(
+      Array.from(zoneMap.values()).map(async (item) => {
+        const zone = item.assignment.zoneId;
+        const isPrimary =
+          zone._id.toString() === agent.primaryZoneId?.toString();
+
+        // Calculate statistics directly from Resident collection for real-time accuracy
+        const totalHouses = await Resident.countDocuments({ zoneId: zone._id });
+
+        // Count visited (includes: visited, interested, callback, appointment, follow-up)
+        const visitedCount = await Resident.countDocuments({
+          zoneId: zone._id,
+          status: {
+            $in: [
+              "visited",
+              "interested",
+              "callback",
+              "appointment",
+              "follow-up",
+            ],
+          },
+        });
+
+        // Count not visited
+        const notVisitedCount = await Resident.countDocuments({
+          zoneId: zone._id,
+          status: "not-visited",
+        });
+
+        // Count interested
+        const interestedCount = await Resident.countDocuments({
+          zoneId: zone._id,
+          status: "interested",
+        });
+
+        // Count not interested
+        const notInterestedCount = await Resident.countDocuments({
+          zoneId: zone._id,
+          status: "not-interested",
+        });
+
+        return {
+          _id: zone._id,
+          name: zone.name,
+          description: zone.description,
+          status: zone.status,
+          assignmentType: item.assignmentType,
+          isScheduled: item.isScheduled,
+          isPrimary: isPrimary,
+          teamName: item.teamName,
+          teamId:
+            item.assignmentType === "team"
+              ? (item.assignment.teamId as any)?._id ||
+                (item.assignment.teamId as any)
+              : null,
+          scheduledDate: item.isScheduled
+            ? (item.assignment as any).scheduledDate
+            : null,
+          statistics: {
+            totalHouses,
+            visitedCount,
+            notVisitedCount,
+            interestedCount,
+            notInterestedCount,
+            completionPercentage:
+              totalHouses > 0
+                ? Math.round((visitedCount / totalHouses) * 100)
+                : 0,
+          },
+          boundary: zone.boundary,
+          buildingData: {
+            totalBuildings: zone.buildingData?.totalBuildings || totalHouses,
+            residentialHomes:
+              zone.buildingData?.residentialHomes || totalHouses,
+            addresses: (zone.buildingData?.addresses || []).slice(0, 5), // Return only first 5 addresses for preview
+          },
+          createdAt: zone.createdAt,
+          updatedAt: zone.updatedAt,
+          lastActivity: zone.lastActivity || zone.updatedAt,
+          totalResidents: zone.totalResidents || totalHouses,
+          activeResidents: zone.activeResidents || 0,
+          completionRate:
+            totalHouses > 0
+              ? Math.round((visitedCount / totalHouses) * 100)
+              : 0,
+          averageKnocks: zone.averageKnocks || 0,
+        };
+      })
+    );
+
+    // Calculate overall statistics
+    const totalTerritories = territories.length;
+    const activeTerritories = territories.filter((t) => !t.isScheduled).length;
+    const scheduledTerritories = territories.filter(
+      (t) => t.isScheduled
+    ).length;
+    const totalHousesAcrossAll = territories.reduce(
+      (sum, t) => sum + t.statistics.totalHouses,
+      0
+    );
+    const totalVisitedAcrossAll = territories.reduce(
+      (sum, t) => sum + t.statistics.visitedCount,
+      0
+    );
+    const totalNotVisitedAcrossAll = territories.reduce(
+      (sum, t) => sum + t.statistics.notVisitedCount,
+      0
+    );
+
+    console.log(
+      `✅ getMyTerritories: Returning ${territories.length} territories`
+    );
+    console.log(
+      `📊 getMyTerritories: Stats - Active: ${activeTerritories}, Scheduled: ${scheduledTerritories}, Total Houses: ${totalHousesAcrossAll}`
+    );
+
+    res.json({
+      success: true,
+      data: {
+        territories,
+        summary: {
+          totalTerritories,
+          activeTerritories,
+          scheduledTerritories,
+          totalHouses: totalHousesAcrossAll,
+          visitedHouses: totalVisitedAcrossAll,
+          notVisitedHouses: totalNotVisitedAcrossAll,
+          completionPercentage:
+            totalHousesAcrossAll > 0
+              ? Math.round((totalVisitedAcrossAll / totalHousesAcrossAll) * 100)
+              : 0,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("❌ getMyTerritories: Error fetching territories:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch territories",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
@@ -811,7 +1143,10 @@ export const getSystemAnalytics = async (req: AuthRequest, res: Response) => {
     const totalUsers = await User.countDocuments();
     const totalTeams = await Team.countDocuments();
     const totalZones = await Zone.countDocuments();
-    const activeAgents = await User.countDocuments({ role: 'AGENT', status: 'ACTIVE' });
+    const activeAgents = await User.countDocuments({
+      role: "AGENT",
+      status: "ACTIVE",
+    });
 
     res.json({
       success: true,
@@ -819,15 +1154,15 @@ export const getSystemAnalytics = async (req: AuthRequest, res: Response) => {
         totalUsers,
         totalTeams,
         totalZones,
-        activeAgents
-      }
+        activeAgents,
+      },
     });
   } catch (error) {
-    console.error('Error getting system analytics:', error);
+    console.error("Error getting system analytics:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get system analytics',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      message: "Failed to get system analytics",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
@@ -842,35 +1177,35 @@ export const getTeamPerformance = async (req: AuthRequest, res: Response) => {
     if (!team) {
       return res.status(404).json({
         success: false,
-        message: 'Team not found'
+        message: "Team not found",
       });
     }
 
     // Get team members (using new array field)
-    const teamMembers = await User.find({ 
-      teamIds: teamId, 
-      role: 'AGENT' 
-    }).select('name email');
+    const teamMembers = await User.find({
+      teamIds: teamId,
+      role: "AGENT",
+    }).select("name email");
 
     // Get assignments for this team
     const assignments = await AgentZoneAssignment.find({
-      agentId: { $in: teamMembers.map(member => member._id) }
-    }).populate('agentId', 'name');
+      agentId: { $in: teamMembers.map((member) => member._id) },
+    }).populate("agentId", "name");
 
     res.json({
       success: true,
       data: {
         team,
         members: teamMembers,
-        assignments
-      }
+        assignments,
+      },
     });
   } catch (error) {
-    console.error('Error getting team performance:', error);
+    console.error("Error getting team performance:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get team performance',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      message: "Failed to get team performance",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
@@ -878,19 +1213,27 @@ export const getTeamPerformance = async (req: AuthRequest, res: Response) => {
 // Get agents created by current admin (Superadmin/Subadmin only)
 export const getMyCreatedAgents = async (req: AuthRequest, res: Response) => {
   try {
-    const { page = 1, limit = 10, status, search, excludeAssigned, includeTeamInfo, excludeTeamId } = req.query;
+    const {
+      page = 1,
+      limit = 10,
+      status,
+      search,
+      excludeAssigned,
+      includeTeamInfo,
+      excludeTeamId,
+    } = req.query;
     const skip = (Number(page) - 1) * Number(limit);
 
     const filter: any = {
-      role: 'AGENT',
+      role: "AGENT",
       createdBy: req.user?.sub,
     };
-    
+
     // Only add status filter if not requesting 'all' statuses
-    if (status && status !== 'all') {
+    if (status && status !== "all") {
       filter.status = status;
-    } else if (status !== 'all') {
-      filter.status = 'ACTIVE'; // Default to ACTIVE only if not explicitly requesting 'all'
+    } else if (status !== "all") {
+      filter.status = "ACTIVE"; // Default to ACTIVE only if not explicitly requesting 'all'
     }
 
     // Exclude agents who are already members of the specified team
@@ -900,25 +1243,25 @@ export const getMyCreatedAgents = async (req: AuthRequest, res: Response) => {
 
     if (search) {
       filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { email: { $regex: search, $options: 'i' } },
-        { username: { $regex: search, $options: 'i' } }
+        { name: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
+        { username: { $regex: search, $options: "i" } },
       ];
     }
 
     let agents;
-    
-    if (includeTeamInfo === 'true') {
+
+    if (includeTeamInfo === "true") {
       // Enhanced query with team membership information
       agents = await User.find(filter)
-        .select('-password')
-        .populate('primaryTeamId', 'name status assignmentStatus')
-        .populate('primaryZoneId', 'name')
-        .populate('createdBy', 'name email')
+        .select("-password")
+        .populate("primaryTeamId", "name status assignmentStatus")
+        .populate("primaryZoneId", "name")
+        .populate("createdBy", "name email")
         .populate({
-          path: 'teamIds',
-          select: 'name status assignmentStatus',
-          match: { createdBy: req.user?.sub } // Only show teams created by current admin
+          path: "teamIds",
+          select: "name status assignmentStatus",
+          match: { createdBy: req.user?.sub }, // Only show teams created by current admin
         })
         .skip(skip)
         .limit(Number(limit))
@@ -926,245 +1269,309 @@ export const getMyCreatedAgents = async (req: AuthRequest, res: Response) => {
     } else {
       // Original simple query
       agents = await User.find(filter)
-        .select('-password')
-        .populate('primaryTeamId', 'name')
-        .populate('primaryZoneId', 'name')
-        .populate('createdBy', 'name email')
+        .select("-password")
+        .populate("primaryTeamId", "name")
+        .populate("primaryZoneId", "name")
+        .populate("createdBy", "name email")
         .skip(skip)
         .limit(Number(limit))
         .sort({ createdAt: -1 });
     }
 
     // If excludeAssigned is true, filter out agents who have active or scheduled zone assignments
-    if (excludeAssigned === 'true') {
-      console.log('🔍 Filtering out agents with active/scheduled assignments...');
-      
+    if (excludeAssigned === "true") {
+      console.log(
+        "🔍 Filtering out agents with active/scheduled assignments..."
+      );
+
       const filteredAgents = [];
-      
+
       for (const agent of agents) {
         // Check for active individual zone assignments
-        const hasActiveIndividualAssignments = !!(await AgentZoneAssignment.exists({
-          agentId: agent._id,
-          status: { $nin: ['COMPLETED', 'CANCELLED'] },
-          effectiveTo: null
-        }));
-        
+        const hasActiveIndividualAssignments =
+          !!(await AgentZoneAssignment.exists({
+            agentId: agent._id,
+            status: { $nin: ["COMPLETED", "CANCELLED"] },
+            effectiveTo: null,
+          }));
+
         // Check for pending scheduled individual assignments
-        const hasPendingScheduledAssignments = !!(await ScheduledAssignment.exists({
-          agentId: agent._id,
-          status: 'PENDING'
-        }));
-        
+        const hasPendingScheduledAssignments =
+          !!(await ScheduledAssignment.exists({
+            agentId: agent._id,
+            status: "PENDING",
+          }));
+
         // Check for active team zone assignments (if agent is part of teams)
         let hasActiveTeamAssignments = false;
         if (agent.teamIds && agent.teamIds.length > 0) {
           hasActiveTeamAssignments = !!(await AgentZoneAssignment.exists({
             teamId: { $in: agent.teamIds },
-            status: { $nin: ['COMPLETED', 'CANCELLED'] },
-            effectiveTo: null
+            status: { $nin: ["COMPLETED", "CANCELLED"] },
+            effectiveTo: null,
           }));
         }
-        
+
         // Check for pending scheduled team assignments
         let hasPendingTeamScheduledAssignments = false;
         if (agent.teamIds && agent.teamIds.length > 0) {
-          hasPendingTeamScheduledAssignments = !!(await ScheduledAssignment.exists({
-            teamId: { $in: agent.teamIds },
-            status: 'PENDING'
-          }));
+          hasPendingTeamScheduledAssignments =
+            !!(await ScheduledAssignment.exists({
+              teamId: { $in: agent.teamIds },
+              status: "PENDING",
+            }));
         }
-        
-        const hasAnyAssignments = hasActiveIndividualAssignments || 
-                                 hasPendingScheduledAssignments || 
-                                 hasActiveTeamAssignments || 
-                                 hasPendingTeamScheduledAssignments;
-        
-        console.log(`🔍 Agent ${agent.email}: hasActiveIndividual=${hasActiveIndividualAssignments}, hasPendingScheduled=${hasPendingScheduledAssignments}, hasActiveTeam=${hasActiveTeamAssignments}, hasPendingTeamScheduled=${hasPendingTeamScheduledAssignments}, hasAnyAssignments=${hasAnyAssignments}`);
-        
+
+        const hasAnyAssignments =
+          hasActiveIndividualAssignments ||
+          hasPendingScheduledAssignments ||
+          hasActiveTeamAssignments ||
+          hasPendingTeamScheduledAssignments;
+
+        console.log(
+          `🔍 Agent ${agent.email}: hasActiveIndividual=${hasActiveIndividualAssignments}, hasPendingScheduled=${hasPendingScheduledAssignments}, hasActiveTeam=${hasActiveTeamAssignments}, hasPendingTeamScheduled=${hasPendingTeamScheduledAssignments}, hasAnyAssignments=${hasAnyAssignments}`
+        );
+
         // Only include agents who don't have any active or scheduled assignments
         if (!hasAnyAssignments) {
           filteredAgents.push(agent);
         }
       }
-      
+
       agents = filteredAgents;
-      console.log(`✅ Filtered ${agents.length} agents without active/scheduled assignments`);
+      console.log(
+        `✅ Filtered ${agents.length} agents without active/scheduled assignments`
+      );
     }
 
     // Calculate correct status and get all zone information
-    const agentsWithCorrectStatus = await Promise.all(agents.map(async (agent: any) => {
-      const calculatedStatus = await calculateAgentStatus((agent._id as any).toString());
+    const agentsWithCorrectStatus = await Promise.all(
+      agents.map(async (agent: any) => {
+        const calculatedStatus = await calculateAgentStatus(
+          (agent._id as any).toString()
+        );
 
-      // Get team zone information if agent is part of a team
-      let teamZoneInfo = null;
-      if (agent.primaryTeamId) {
-        const teamZoneAssignment = await AgentZoneAssignment.findOne({
-          teamId: agent.primaryTeamId._id,
-          status: { $nin: ['COMPLETED', 'CANCELLED'] },
-          effectiveTo: null
-        }).populate('zoneId', 'name');
-        
-        if (teamZoneAssignment && teamZoneAssignment.zoneId) {
-          teamZoneInfo = {
-            _id: teamZoneAssignment.zoneId._id,
-            name: (teamZoneAssignment.zoneId as any).name
+        // Get team zone information if agent is part of a team
+        let teamZoneInfo = null;
+        if (agent.primaryTeamId) {
+          const teamZoneAssignment = await AgentZoneAssignment.findOne({
+            teamId: agent.primaryTeamId._id,
+            status: { $nin: ["COMPLETED", "CANCELLED"] },
+            effectiveTo: null,
+          }).populate("zoneId", "name");
+
+          if (teamZoneAssignment && teamZoneAssignment.zoneId) {
+            teamZoneInfo = {
+              _id: teamZoneAssignment.zoneId._id,
+              name: (teamZoneAssignment.zoneId as any).name,
+            };
+          }
+        }
+
+        // Import ScheduledAssignment model
+        const {
+          ScheduledAssignment,
+        } = require("../models/ScheduledAssignment");
+
+        // Get all individual zone assignments for this agent
+        const individualZoneAssignments = await AgentZoneAssignment.find({
+          agentId: agent._id,
+          status: { $nin: ["COMPLETED", "CANCELLED"] },
+          effectiveTo: null,
+        }).populate("zoneId", "name");
+
+        // Get all team zone assignments for this agent's teams
+        const teamZoneAssignments = await AgentZoneAssignment.find({
+          teamId: { $in: agent.teamIds },
+          status: { $nin: ["COMPLETED", "CANCELLED"] },
+          effectiveTo: null,
+        }).populate("zoneId", "name");
+
+        // Get all PENDING scheduled individual assignments
+        const pendingIndividualScheduledAssignments =
+          await ScheduledAssignment.find({
+            agentId: agent._id,
+            status: "PENDING",
+          }).populate("zoneId", "name");
+
+        // Get all PENDING scheduled team assignments
+        const pendingTeamScheduledAssignments = await ScheduledAssignment.find({
+          teamId: { $in: agent.teamIds },
+          status: "PENDING",
+        }).populate("zoneId", "name");
+
+        // Combine all assignments (active + scheduled)
+        const allAssignments = [
+          ...individualZoneAssignments,
+          ...teamZoneAssignments,
+          ...pendingIndividualScheduledAssignments,
+          ...pendingTeamScheduledAssignments,
+        ];
+
+        // Create a map of zones from all assignment records (both active and scheduled)
+        // Use a Map to deduplicate zones by zoneId
+        const zoneMap = new Map();
+
+        allAssignments.forEach((assignment) => {
+          const zoneId = assignment.zoneId._id.toString();
+          if (!zoneMap.has(zoneId)) {
+            zoneMap.set(zoneId, {
+              _id: assignment.zoneId._id,
+              name: assignment.zoneId.name,
+              isPrimary:
+                assignment.zoneId._id.toString() ===
+                agent.primaryZoneId?._id?.toString(),
+              isScheduled: assignment.status === "PENDING", // Add flag to identify scheduled assignments
+            });
+          }
+        });
+
+        const assignmentZones = Array.from(zoneMap.values());
+
+        // If no assignment records found, fall back to User model's zoneIds
+        let allAssignedZones = assignmentZones;
+        if (
+          assignmentZones.length === 0 &&
+          agent.zoneIds &&
+          agent.zoneIds.length > 0
+        ) {
+          // Get zone details from the zoneIds array
+          const Zone = require("../models/Zone").default;
+          const zones = await Zone.find({ _id: { $in: agent.zoneIds } }).select(
+            "name"
+          );
+          allAssignedZones = zones.map((zone: any) => ({
+            _id: zone._id,
+            name: zone.name,
+            isPrimary:
+              zone._id.toString() === agent.primaryZoneId?._id?.toString(),
+          }));
+        }
+
+        // Determine assignment status based on zone assignments
+        const hasZoneAssignment = allAssignments.length > 0;
+        const assignmentStatus = hasZoneAssignment ? "ASSIGNED" : "UNASSIGNED";
+
+        // Get team information for all teams the user is a member of
+        let teamInfo = null;
+        let teamMemberships = null;
+
+        if (agent.teamIds && agent.teamIds.length > 0) {
+          if (includeTeamInfo === "true") {
+            // Enhanced team membership information
+            teamMemberships =
+              agent.teamIds
+                ?.filter(
+                  (team: any) => team && typeof team === "object" && team._id
+                )
+                .map((team: any) => ({
+                  teamId: team._id,
+                  teamName: team.name || "Unknown Team",
+                  teamStatus: team.status || "UNKNOWN",
+                  teamAssignmentStatus: team.assignmentStatus || "UNKNOWN",
+                  isPrimary:
+                    agent.primaryTeamId?._id?.toString() ===
+                    team._id?.toString(),
+                })) || [];
+          } else {
+            // Simple team information
+            const Team = require("../models/Team").default;
+            const teams = await Team.find({
+              _id: { $in: agent.teamIds },
+            }).select("name");
+            if (teams.length > 0) {
+              teamInfo = teams.map((team: any) => ({
+                _id: team._id,
+                name: team.name,
+              }));
+            }
+          }
+        }
+
+        // Create assignment summary for enhanced response
+        let assignmentSummary = null;
+        if (includeTeamInfo === "true") {
+          assignmentSummary = {
+            totalActiveZones:
+              individualZoneAssignments.length + teamZoneAssignments.length,
+            totalScheduledZones:
+              pendingIndividualScheduledAssignments.length +
+              pendingTeamScheduledAssignments.length,
+            hasActiveAssignments:
+              individualZoneAssignments.length + teamZoneAssignments.length > 0,
+            hasScheduledAssignments:
+              pendingIndividualScheduledAssignments.length +
+                pendingTeamScheduledAssignments.length >
+              0,
+            individualZones: individualZoneAssignments.map(
+              (a: any) => a.zoneId?.name || "Unknown"
+            ),
+            teamZones: teamZoneAssignments.map(
+              (a: any) => a.zoneId?.name || "Unknown"
+            ),
+            scheduledZones: [
+              ...pendingIndividualScheduledAssignments,
+              ...pendingTeamScheduledAssignments,
+            ].map((a: any) => a.zoneId?.name || "Unknown"),
+            // Enhanced assignment status details
+            currentAssignmentStatus: assignmentStatus,
+            assignmentDetails: {
+              hasIndividualAssignments: individualZoneAssignments.length > 0,
+              hasTeamAssignments: teamZoneAssignments.length > 0,
+              hasScheduledIndividualAssignments:
+                pendingIndividualScheduledAssignments.length > 0,
+              hasScheduledTeamAssignments:
+                pendingTeamScheduledAssignments.length > 0,
+              totalAssignments: allAssignments.length,
+              isFullyAssigned: allAssignments.length > 0,
+              isPartiallyAssigned:
+                (individualZoneAssignments.length > 0 ||
+                  teamZoneAssignments.length > 0) &&
+                (pendingIndividualScheduledAssignments.length > 0 ||
+                  pendingTeamScheduledAssignments.length > 0),
+              isOnlyScheduled:
+                (pendingIndividualScheduledAssignments.length > 0 ||
+                  pendingTeamScheduledAssignments.length > 0) &&
+                individualZoneAssignments.length === 0 &&
+                teamZoneAssignments.length === 0,
+            },
           };
         }
-      }
 
-      // Import ScheduledAssignment model
-      const { ScheduledAssignment } = require('../models/ScheduledAssignment');
-
-      // Get all individual zone assignments for this agent
-      const individualZoneAssignments = await AgentZoneAssignment.find({
-        agentId: agent._id,
-        status: { $nin: ['COMPLETED', 'CANCELLED'] },
-        effectiveTo: null
-      }).populate('zoneId', 'name');
-
-      // Get all team zone assignments for this agent's teams
-      const teamZoneAssignments = await AgentZoneAssignment.find({
-        teamId: { $in: agent.teamIds },
-        status: { $nin: ['COMPLETED', 'CANCELLED'] },
-        effectiveTo: null
-      }).populate('zoneId', 'name');
-
-      // Get all PENDING scheduled individual assignments
-      const pendingIndividualScheduledAssignments = await ScheduledAssignment.find({
-        agentId: agent._id,
-        status: 'PENDING'
-      }).populate('zoneId', 'name');
-
-      // Get all PENDING scheduled team assignments
-      const pendingTeamScheduledAssignments = await ScheduledAssignment.find({
-        teamId: { $in: agent.teamIds },
-        status: 'PENDING'
-      }).populate('zoneId', 'name');
-
-      // Combine all assignments (active + scheduled)
-      const allAssignments = [
-        ...individualZoneAssignments, 
-        ...teamZoneAssignments,
-        ...pendingIndividualScheduledAssignments,
-        ...pendingTeamScheduledAssignments
-      ];
-      
-      // Create a map of zones from all assignment records (both active and scheduled)
-      // Use a Map to deduplicate zones by zoneId
-      const zoneMap = new Map();
-      
-      allAssignments.forEach(assignment => {
-        const zoneId = assignment.zoneId._id.toString();
-        if (!zoneMap.has(zoneId)) {
-          zoneMap.set(zoneId, {
-            _id: assignment.zoneId._id,
-            name: assignment.zoneId.name,
-            isPrimary: assignment.zoneId._id.toString() === agent.primaryZoneId?._id?.toString(),
-            isScheduled: assignment.status === 'PENDING' // Add flag to identify scheduled assignments
-          });
-        }
-      });
-      
-      const assignmentZones = Array.from(zoneMap.values());
-
-      // If no assignment records found, fall back to User model's zoneIds
-      let allAssignedZones = assignmentZones;
-      if (assignmentZones.length === 0 && agent.zoneIds && agent.zoneIds.length > 0) {
-        // Get zone details from the zoneIds array
-        const Zone = require('../models/Zone').default;
-        const zones = await Zone.find({ _id: { $in: agent.zoneIds } }).select('name');
-        allAssignedZones = zones.map((zone: any) => ({
-          _id: zone._id,
-          name: zone.name,
-          isPrimary: zone._id.toString() === agent.primaryZoneId?._id?.toString()
-        }));
-      }
-
-      // Determine assignment status based on zone assignments
-      const hasZoneAssignment = allAssignments.length > 0;
-      const assignmentStatus = hasZoneAssignment ? 'ASSIGNED' : 'UNASSIGNED';
-
-      // Get team information for all teams the user is a member of
-      let teamInfo = null;
-      let teamMemberships = null;
-      
-      if (agent.teamIds && agent.teamIds.length > 0) {
-        if (includeTeamInfo === 'true') {
-          // Enhanced team membership information
-          teamMemberships = agent.teamIds?.filter((team: any) => team && typeof team === 'object' && team._id).map((team: any) => ({
-            teamId: team._id,
-            teamName: team.name || 'Unknown Team',
-            teamStatus: team.status || 'UNKNOWN',
-            teamAssignmentStatus: team.assignmentStatus || 'UNKNOWN',
-            isPrimary: agent.primaryTeamId?._id?.toString() === team._id?.toString()
-          })) || [];
-        } else {
-          // Simple team information
-          const Team = require('../models/Team').default;
-          const teams = await Team.find({ _id: { $in: agent.teamIds } }).select('name');
-          if (teams.length > 0) {
-            teamInfo = teams.map((team: any) => ({
-              _id: team._id,
-              name: team.name
-            }));
-          }
-        }
-      }
-
-      // Create assignment summary for enhanced response
-      let assignmentSummary = null;
-      if (includeTeamInfo === 'true') {
-        assignmentSummary = {
-          totalActiveZones: individualZoneAssignments.length + teamZoneAssignments.length,
-          totalScheduledZones: pendingIndividualScheduledAssignments.length + pendingTeamScheduledAssignments.length,
-          hasActiveAssignments: (individualZoneAssignments.length + teamZoneAssignments.length) > 0,
-          hasScheduledAssignments: (pendingIndividualScheduledAssignments.length + pendingTeamScheduledAssignments.length) > 0,
-          individualZones: individualZoneAssignments.map((a: any) => a.zoneId?.name || 'Unknown'),
-          teamZones: teamZoneAssignments.map((a: any) => a.zoneId?.name || 'Unknown'),
-          scheduledZones: [...pendingIndividualScheduledAssignments, ...pendingTeamScheduledAssignments].map((a: any) => a.zoneId?.name || 'Unknown'),
-          // Enhanced assignment status details
-          currentAssignmentStatus: assignmentStatus,
-          assignmentDetails: {
-            hasIndividualAssignments: individualZoneAssignments.length > 0,
-            hasTeamAssignments: teamZoneAssignments.length > 0,
-            hasScheduledIndividualAssignments: pendingIndividualScheduledAssignments.length > 0,
-            hasScheduledTeamAssignments: pendingTeamScheduledAssignments.length > 0,
-            totalAssignments: allAssignments.length,
-            isFullyAssigned: allAssignments.length > 0,
-            isPartiallyAssigned: (individualZoneAssignments.length > 0 || teamZoneAssignments.length > 0) && 
-                                (pendingIndividualScheduledAssignments.length > 0 || pendingTeamScheduledAssignments.length > 0),
-            isOnlyScheduled: (pendingIndividualScheduledAssignments.length > 0 || pendingTeamScheduledAssignments.length > 0) && 
-                            (individualZoneAssignments.length === 0 && teamZoneAssignments.length === 0)
-          }
+        return {
+          ...agent.toObject(),
+          status: calculatedStatus, // Use calculated status instead of stored status
+          assignmentStatus, // Add assignment status
+          teamZoneInfo, // Add team zone information
+          allAssignedZones, // Add all individual zone assignments
+          teamInfo, // Add team information for all teams user is member of
+          teamMemberships, // Enhanced team membership details
+          assignmentSummary, // Detailed assignment summary
         };
-      }
-
-      return {
-        ...agent.toObject(),
-        status: calculatedStatus, // Use calculated status instead of stored status
-        assignmentStatus, // Add assignment status
-        teamZoneInfo, // Add team zone information
-        allAssignedZones, // Add all individual zone assignments
-        teamInfo, // Add team information for all teams user is member of
-        teamMemberships, // Enhanced team membership details
-        assignmentSummary // Detailed assignment summary
-      };
-    }));
+      })
+    );
 
     // Apply status filter after calculating correct status
-    const filteredAgents = status && status !== 'all' 
-      ? agentsWithCorrectStatus.filter(agent => agent.status === status)
-      : agentsWithCorrectStatus;
+    const filteredAgents =
+      status && status !== "all"
+        ? agentsWithCorrectStatus.filter((agent) => agent.status === status)
+        : agentsWithCorrectStatus;
 
     // Recalculate total count with status filter
     const totalFilter = { ...filter };
-    if (status && status !== 'all') {
+    if (status && status !== "all") {
       // For status filtering, we need to check zone assignments (individual and team)
-      const allAgents = await User.find(filter).select('primaryZoneId zoneIds teamIds');
-      const filteredCount = await Promise.all(allAgents.map(async (agent: any) => {
-        const calculatedStatus = await calculateAgentStatus((agent._id as any).toString());
-        return calculatedStatus === status;
-      }));
+      const allAgents = await User.find(filter).select(
+        "primaryZoneId zoneIds teamIds"
+      );
+      const filteredCount = await Promise.all(
+        allAgents.map(async (agent: any) => {
+          const calculatedStatus = await calculateAgentStatus(
+            (agent._id as any).toString()
+          );
+          return calculatedStatus === status;
+        })
+      );
       var total = filteredCount.filter(Boolean).length;
     } else {
       total = await User.countDocuments(filter);
@@ -1177,15 +1584,15 @@ export const getMyCreatedAgents = async (req: AuthRequest, res: Response) => {
         page: Number(page),
         limit: Number(limit),
         total,
-        pages: Math.ceil(total / Number(limit))
-      }
+        pages: Math.ceil(total / Number(limit)),
+      },
     });
   } catch (error) {
-    console.error('Error getting created agents:', error);
+    console.error("Error getting created agents:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get created agents',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      message: "Failed to get created agents",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
@@ -1197,8 +1604,8 @@ export const getTeamOverview = async (req: AuthRequest, res: Response) => {
 
     // Get all agents created by current admin
     const agents = await User.find({
-      role: 'AGENT',
-      createdBy: currentUserId
+      role: "AGENT",
+      createdBy: currentUserId,
     });
 
     let totalAgents = agents.length;
@@ -1208,9 +1615,11 @@ export const getTeamOverview = async (req: AuthRequest, res: Response) => {
     // Count agents based on status
     for (const agent of agents) {
       // Use the same calculateAgentStatus function that includes scheduled assignments
-      const calculatedStatus = await calculateAgentStatus((agent._id as any).toString());
-      
-      if (calculatedStatus === 'ACTIVE') {
+      const calculatedStatus = await calculateAgentStatus(
+        (agent._id as any).toString()
+      );
+
+      if (calculatedStatus === "ACTIVE") {
         activeAgents++;
       } else {
         inactiveAgents++;
@@ -1223,15 +1632,15 @@ export const getTeamOverview = async (req: AuthRequest, res: Response) => {
     startOfMonth.setHours(0, 0, 0, 0);
 
     const agentsThisMonth = await User.countDocuments({
-      role: 'AGENT',
+      role: "AGENT",
       createdBy: currentUserId,
-      createdAt: { $gte: startOfMonth }
+      createdAt: { $gte: startOfMonth },
     });
 
     // Get total zones count
-    const { Zone } = require('../models/Zone');
+    const { Zone } = require("../models/Zone");
     const totalZones = await Zone.countDocuments({
-      createdBy: currentUserId
+      createdBy: currentUserId,
     });
 
     // Calculate assignment status based on actual zone assignments
@@ -1240,32 +1649,36 @@ export const getTeamOverview = async (req: AuthRequest, res: Response) => {
 
     for (const agent of agents) {
       // Check if agent has any zone assignments (individual or through team)
-      const { AgentZoneAssignment } = require('../models/AgentZoneAssignment');
-      
+      const { AgentZoneAssignment } = require("../models/AgentZoneAssignment");
+
       // Check individual zone assignments
       const individualAssignments = await AgentZoneAssignment.find({
         agentId: agent._id,
-        status: 'ACTIVE'
+        status: "ACTIVE",
       });
 
       // Check team zone assignments in AgentZoneAssignment
       const teamAssignments = await AgentZoneAssignment.find({
         teamId: { $in: agent.teamIds || [] },
-        status: 'ACTIVE'
+        status: "ACTIVE",
       });
 
       // Check team zone assignments in Zone model (for zones assigned to teams)
-      const { Zone } = require('../models/Zone');
+      const { Zone } = require("../models/Zone");
       const teamZoneAssignments = await Zone.find({
         teamId: { $in: agent.teamIds || [] },
-        status: { $in: ['ACTIVE', 'SCHEDULED'] }
+        status: { $in: ["ACTIVE", "SCHEDULED"] },
       });
 
       // Also check if agent has direct zoneIds (for backward compatibility)
       const hasDirectZones = agent.zoneIds && agent.zoneIds.length > 0;
-      
-      const hasZoneAssignment = individualAssignments.length > 0 || teamAssignments.length > 0 || teamZoneAssignments.length > 0 || hasDirectZones;
-      
+
+      const hasZoneAssignment =
+        individualAssignments.length > 0 ||
+        teamAssignments.length > 0 ||
+        teamZoneAssignments.length > 0 ||
+        hasDirectZones;
+
       if (hasZoneAssignment) {
         assignedAgentsCount++;
       } else {
@@ -1282,15 +1695,15 @@ export const getTeamOverview = async (req: AuthRequest, res: Response) => {
         agentsThisMonth,
         assignedAgents: assignedAgentsCount,
         unassignedAgents: unassignedAgentsCount,
-        totalZones
-      }
+        totalZones,
+      },
     });
   } catch (error) {
-    console.error('Error getting team overview:', error);
+    console.error("Error getting team overview:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get team overview',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      message: "Failed to get team overview",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
@@ -1302,52 +1715,59 @@ export const getRecentAdditions = async (req: AuthRequest, res: Response) => {
     const currentUserId = req.user?.sub;
 
     const recentAgents = await User.find({
-      role: 'AGENT',
-      createdBy: currentUserId
+      role: "AGENT",
+      createdBy: currentUserId,
     })
-      .select('name email status createdAt primaryZoneId zoneIds')
-      .populate('primaryZoneId', 'name')
+      .select("name email status createdAt primaryZoneId zoneIds")
+      .populate("primaryZoneId", "name")
       .sort({ createdAt: -1 })
       .limit(Number(limit));
 
     // Calculate correct status based on zone assignments
-    const agentsWithCorrectStatus = await Promise.all(recentAgents.map(async (agent) => {
-      // Use the same calculateAgentStatus function that includes scheduled assignments
-      const calculatedStatus = await calculateAgentStatus((agent._id as any).toString());
+    const agentsWithCorrectStatus = await Promise.all(
+      recentAgents.map(async (agent) => {
+        // Use the same calculateAgentStatus function that includes scheduled assignments
+        const calculatedStatus = await calculateAgentStatus(
+          (agent._id as any).toString()
+        );
 
-      return {
-        _id: agent._id,
-        name: agent.name,
-        email: agent.email,
-        status: calculatedStatus, // Use calculated status instead of stored status
-        primaryZoneId: agent.primaryZoneId,
-        createdAt: agent.createdAt
-      };
-    }));
+        return {
+          _id: agent._id,
+          name: agent.name,
+          email: agent.email,
+          status: calculatedStatus, // Use calculated status instead of stored status
+          primaryZoneId: agent.primaryZoneId,
+          createdAt: agent.createdAt,
+        };
+      })
+    );
 
     res.json({
       success: true,
-      data: agentsWithCorrectStatus
+      data: agentsWithCorrectStatus,
     });
   } catch (error) {
-    console.error('Error getting recent additions:', error);
+    console.error("Error getting recent additions:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get recent additions',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      message: "Failed to get recent additions",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
 
 // Bulk update agent statuses based on zone assignments (for existing agents)
-export const bulkUpdateAgentStatuses = async (req: AuthRequest, res: Response) => {
+export const bulkUpdateAgentStatuses = async (
+  req: AuthRequest,
+  res: Response
+) => {
   try {
     const currentUserId = req.user?.sub;
 
     // Get all agents created by current admin
     const agents = await User.find({
-      role: 'AGENT',
-      createdBy: currentUserId
+      role: "AGENT",
+      createdBy: currentUserId,
     });
 
     let updatedCount = 0;
@@ -1356,16 +1776,17 @@ export const bulkUpdateAgentStatuses = async (req: AuthRequest, res: Response) =
 
     for (const agent of agents) {
       const hasZoneAssignment = agent.zoneIds && agent.zoneIds.length > 0;
-      const hasActiveZoneAssignment = agent.primaryZoneId !== null && agent.primaryZoneId !== undefined;
-      
+      const hasActiveZoneAssignment =
+        agent.primaryZoneId !== null && agent.primaryZoneId !== undefined;
+
       const shouldBeInactive = !hasZoneAssignment || !hasActiveZoneAssignment;
-      
-      if (shouldBeInactive && agent.status === 'ACTIVE') {
-        await User.findByIdAndUpdate(agent._id, { status: 'INACTIVE' });
+
+      if (shouldBeInactive && agent.status === "ACTIVE") {
+        await User.findByIdAndUpdate(agent._id, { status: "INACTIVE" });
         inactiveCount++;
         updatedCount++;
-      } else if (!shouldBeInactive && agent.status === 'INACTIVE') {
-        await User.findByIdAndUpdate(agent._id, { status: 'ACTIVE' });
+      } else if (!shouldBeInactive && agent.status === "INACTIVE") {
+        await User.findByIdAndUpdate(agent._id, { status: "ACTIVE" });
         activeCount++;
         updatedCount++;
       }
@@ -1378,15 +1799,15 @@ export const bulkUpdateAgentStatuses = async (req: AuthRequest, res: Response) =
         totalAgents: agents.length,
         updatedCount,
         setToActive: activeCount,
-        setToInactive: inactiveCount
-      }
+        setToInactive: inactiveCount,
+      },
     });
   } catch (error) {
-    console.error('Error bulk updating agent statuses:', error);
+    console.error("Error bulk updating agent statuses:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to bulk update agent statuses',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      message: "Failed to bulk update agent statuses",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
@@ -1395,114 +1816,127 @@ export const bulkUpdateAgentStatuses = async (req: AuthRequest, res: Response) =
 export const getDetailedAgent = async (req: AuthRequest, res: Response) => {
   try {
     const { agentId } = req.params;
-    
+
     if (!agentId) {
       return res.status(400).json({
         success: false,
-        message: 'Agent ID is required'
+        message: "Agent ID is required",
       });
     }
 
     // Get agent with password included
-    const agent = await User.findById(agentId).select('+password +originalPassword');
-    if (!agent || agent.role !== 'AGENT') {
+    const agent = await User.findById(agentId).select(
+      "+password +originalPassword"
+    );
+    if (!agent || agent.role !== "AGENT") {
       return res.status(404).json({
         success: false,
-        message: 'Agent not found'
+        message: "Agent not found",
       });
     }
 
     // Check if current user has permission to view this agent
     // Only allow if current user created this agent or is a superadmin
-    if (req.user?.role !== 'SUPERADMIN' && agent.createdBy?.toString() !== req.user?.sub) {
+    if (
+      req.user?.role !== "SUPERADMIN" &&
+      agent.createdBy?.toString() !== req.user?.sub
+    ) {
       return res.status(403).json({
         success: false,
-        message: 'You do not have permission to view this agent'
+        message: "You do not have permission to view this agent",
       });
     }
 
     // Import ScheduledAssignment model
-    const { ScheduledAssignment } = require('../models/ScheduledAssignment');
+    const { ScheduledAssignment } = require("../models/ScheduledAssignment");
 
     // Get all individual zone assignments for this agent
     const individualZoneAssignments = await AgentZoneAssignment.find({
       agentId: agent._id,
-      status: { $nin: ['COMPLETED', 'CANCELLED'] },
-      effectiveTo: null
-    }).populate('zoneId', 'name');
+      status: { $nin: ["COMPLETED", "CANCELLED"] },
+      effectiveTo: null,
+    }).populate("zoneId", "name");
 
     // Get all team zone assignments for this agent's teams
     const teamZoneAssignments = await AgentZoneAssignment.find({
       teamId: { $in: agent.teamIds },
-      status: { $nin: ['COMPLETED', 'CANCELLED'] },
-      effectiveTo: null
-    }).populate('zoneId', 'name');
+      status: { $nin: ["COMPLETED", "CANCELLED"] },
+      effectiveTo: null,
+    }).populate("zoneId", "name");
 
     // Get all PENDING scheduled individual assignments
-    const pendingIndividualScheduledAssignments = await ScheduledAssignment.find({
-      agentId: agent._id,
-      status: 'PENDING'
-    }).populate('zoneId', 'name');
+    const pendingIndividualScheduledAssignments =
+      await ScheduledAssignment.find({
+        agentId: agent._id,
+        status: "PENDING",
+      }).populate("zoneId", "name");
 
     // Get all PENDING scheduled team assignments
     const pendingTeamScheduledAssignments = await ScheduledAssignment.find({
       teamId: { $in: agent.teamIds },
-      status: 'PENDING'
-    }).populate('zoneId', 'name');
+      status: "PENDING",
+    }).populate("zoneId", "name");
 
     // Combine all assignments (active + scheduled)
     const allAssignments = [
-      ...individualZoneAssignments, 
+      ...individualZoneAssignments,
       ...teamZoneAssignments,
       ...pendingIndividualScheduledAssignments,
-      ...pendingTeamScheduledAssignments
+      ...pendingTeamScheduledAssignments,
     ];
-    
+
     // Create a map of zones from all assignment records (both active and scheduled)
-    const assignmentZones = allAssignments.map(assignment => ({
+    const assignmentZones = allAssignments.map((assignment) => ({
       _id: assignment.zoneId._id,
       name: assignment.zoneId.name,
-      isPrimary: assignment.zoneId._id.toString() === agent.primaryZoneId?._id?.toString(),
-      isScheduled: assignment.status === 'PENDING' // Add flag to identify scheduled assignments
+      isPrimary:
+        assignment.zoneId._id.toString() ===
+        agent.primaryZoneId?._id?.toString(),
+      isScheduled: assignment.status === "PENDING", // Add flag to identify scheduled assignments
     }));
 
     // Get team information (including teams from assignments)
     const teamIdsFromAssignments = [
-      ...teamZoneAssignments.map(a => a.teamId),
-      ...pendingTeamScheduledAssignments.map((a: any) => a.teamId)
+      ...teamZoneAssignments.map((a) => a.teamId),
+      ...pendingTeamScheduledAssignments.map((a: any) => a.teamId),
     ];
-    
-    const allTeamIds = [...new Set([
-      ...(agent.teamIds || []),
-      ...teamIdsFromAssignments
-    ])];
 
-    const teams = allTeamIds.length > 0 
-      ? await Team.find({ _id: { $in: allTeamIds } }).select('name')
-      : [];
+    const allTeamIds = [
+      ...new Set([...(agent.teamIds || []), ...teamIdsFromAssignments]),
+    ];
+
+    const teams =
+      allTeamIds.length > 0
+        ? await Team.find({ _id: { $in: allTeamIds } }).select("name")
+        : [];
 
     // Use assignment zones if available, otherwise fall back to User model's zoneIds
-    const zones = assignmentZones.length > 0 
-      ? assignmentZones
-      : (agent.zoneIds && agent.zoneIds.length > 0
-          ? await Zone.find({ _id: { $in: agent.zoneIds } }).select('name')
-          : []);
+    const zones =
+      assignmentZones.length > 0
+        ? assignmentZones
+        : agent.zoneIds && agent.zoneIds.length > 0
+        ? await Zone.find({ _id: { $in: agent.zoneIds } }).select("name")
+        : [];
 
     // Get createdBy admin information
     let createdByInfo = null;
     if (agent.createdBy) {
-      const adminUser = await User.findById(agent.createdBy).select('name email');
+      const adminUser = await User.findById(agent.createdBy).select(
+        "name email"
+      );
       if (adminUser) {
         createdByInfo = {
           _id: adminUser._id,
           name: adminUser.name,
-          email: adminUser.email
+          email: adminUser.email,
         };
       }
     }
 
     // Calculate correct status based on zone assignments (including scheduled assignments)
-    const calculatedStatus = await calculateAgentStatus((agent._id as any).toString());
+    const calculatedStatus = await calculateAgentStatus(
+      (agent._id as any).toString()
+    );
 
     // Get primary team and zone from assignments
     const primaryTeam = teams.length > 0 ? teams[0] : null; // First team as primary
@@ -1516,7 +1950,7 @@ export const getDetailedAgent = async (req: AuthRequest, res: Response) => {
       contactNumber: agent.contactNumber,
       role: agent.role,
       status: calculatedStatus,
-      password: agent.originalPassword || 'Password not available', // Return original password for admin view
+      password: agent.originalPassword || "Password not available", // Return original password for admin view
       primaryTeamId: primaryTeam,
       primaryZoneId: primaryZone,
       teamIds: agent.teamIds,
@@ -1525,37 +1959,44 @@ export const getDetailedAgent = async (req: AuthRequest, res: Response) => {
       zones: zones,
       createdBy: createdByInfo,
       createdAt: agent.createdAt,
-      knockedToday: 0 // This would come from activity tracking
+      knockedToday: 0, // This would come from activity tracking
     };
 
     res.json({
       success: true,
-      message: 'Agent details retrieved successfully',
-      data: detailedAgent
+      message: "Agent details retrieved successfully",
+      data: detailedAgent,
     });
   } catch (error) {
-    console.error('Error getting detailed agent:', error);
+    console.error("Error getting detailed agent:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get agent details',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      message: "Failed to get agent details",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
 
 // Function to refresh assignment statuses for all agents
-export const refreshAssignmentStatuses = async (req: AuthRequest, res: Response) => {
+export const refreshAssignmentStatuses = async (
+  req: AuthRequest,
+  res: Response
+) => {
   try {
     const currentUserId = req.user?.sub;
-    const { updateUserAssignmentStatus } = require('../controllers/assignment.controller');
+    const {
+      updateUserAssignmentStatus,
+    } = require("../controllers/assignment.controller");
 
     // Get all agents created by this admin
     const agents = await User.find({
-      role: 'AGENT',
-      createdBy: currentUserId
+      role: "AGENT",
+      createdBy: currentUserId,
     });
 
-    console.log(`🔄 refreshAssignmentStatuses: Processing ${agents.length} agents`);
+    console.log(
+      `🔄 refreshAssignmentStatuses: Processing ${agents.length} agents`
+    );
 
     // Update each agent's assignment status
     const updatePromises = agents.map(async (agent: any) => {
@@ -1563,33 +2004,43 @@ export const refreshAssignmentStatuses = async (req: AuthRequest, res: Response)
         await updateUserAssignmentStatus(agent._id.toString());
         return { agentId: agent._id, name: agent.name, success: true };
       } catch (error) {
-        console.error(`❌ Failed to update assignment status for agent ${agent.name}:`, error);
-        return { agentId: agent._id, name: agent.name, success: false, error: error instanceof Error ? error.message : 'Unknown error' };
+        console.error(
+          `❌ Failed to update assignment status for agent ${agent.name}:`,
+          error
+        );
+        return {
+          agentId: agent._id,
+          name: agent.name,
+          success: false,
+          error: error instanceof Error ? error.message : "Unknown error",
+        };
       }
     });
 
     const results = await Promise.all(updatePromises);
-    const successful = results.filter(r => r.success);
-    const failed = results.filter(r => !r.success);
+    const successful = results.filter((r) => r.success);
+    const failed = results.filter((r) => !r.success);
 
-    console.log(`✅ refreshAssignmentStatuses: Updated ${successful.length} agents, ${failed.length} failed`);
+    console.log(
+      `✅ refreshAssignmentStatuses: Updated ${successful.length} agents, ${failed.length} failed`
+    );
 
     res.json({
       success: true,
-      message: 'Assignment statuses refreshed successfully',
+      message: "Assignment statuses refreshed successfully",
       data: {
         totalAgents: agents.length,
         successful: successful.length,
         failed: failed.length,
-        results
-      }
+        results,
+      },
     });
   } catch (error) {
-    console.error('❌ Error refreshing assignment statuses:', error);
+    console.error("❌ Error refreshing assignment statuses:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to refresh assignment statuses',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      message: "Failed to refresh assignment statuses",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };
@@ -1601,58 +2052,74 @@ export const refreshAllStatuses = async (req: AuthRequest, res: Response) => {
 
     // Get all agents created by this admin
     const agents = await User.find({
-      role: 'AGENT',
-      createdBy: currentUserId
+      role: "AGENT",
+      createdBy: currentUserId,
     });
 
     // Update each agent's status
     const agentUpdates = agents.map(async (agent: any) => {
-      const calculatedStatus = await calculateAgentStatus((agent._id as any).toString());
+      const calculatedStatus = await calculateAgentStatus(
+        (agent._id as any).toString()
+      );
       if (calculatedStatus !== agent.status) {
         await User.findByIdAndUpdate(agent._id, { status: calculatedStatus });
-        return { agentId: agent._id, name: agent.name, oldStatus: agent.status, newStatus: calculatedStatus };
+        return {
+          agentId: agent._id,
+          name: agent.name,
+          oldStatus: agent.status,
+          newStatus: calculatedStatus,
+        };
       }
       return null;
     });
 
     const agentResults = await Promise.all(agentUpdates);
-    const updatedAgents = agentResults.filter(result => result !== null);
+    const updatedAgents = agentResults.filter((result) => result !== null);
 
     // Get all teams created by this admin (filter out teams with no members)
-    const allTeams = await Team.find({ createdBy: currentUserId }).populate('agentIds');
-    const teams = allTeams.filter(team => team.agentIds && team.agentIds.length > 0);
+    const allTeams = await Team.find({ createdBy: currentUserId }).populate(
+      "agentIds"
+    );
+    const teams = allTeams.filter(
+      (team) => team.agentIds && team.agentIds.length > 0
+    );
 
     // Update each team's status
     const teamUpdates = teams.map(async (team: any) => {
       const calculatedStatus = await calculateTeamStatus(team._id.toString());
       if (calculatedStatus !== team.status) {
         await Team.findByIdAndUpdate(team._id, { status: calculatedStatus });
-        return { teamId: team._id, name: team.name, oldStatus: team.status, newStatus: calculatedStatus };
+        return {
+          teamId: team._id,
+          name: team.name,
+          oldStatus: team.status,
+          newStatus: calculatedStatus,
+        };
       }
       return null;
     });
 
     const teamResults = await Promise.all(teamUpdates);
-    const updatedTeams = teamResults.filter(result => result !== null);
+    const updatedTeams = teamResults.filter((result) => result !== null);
 
     res.json({
       success: true,
-      message: 'All statuses refreshed successfully',
+      message: "All statuses refreshed successfully",
       data: {
         updatedAgents,
         updatedTeams,
         summary: {
           agentsUpdated: updatedAgents.length,
-          teamsUpdated: updatedTeams.length
-        }
-      }
+          teamsUpdated: updatedTeams.length,
+        },
+      },
     });
   } catch (error) {
-    console.error('Error refreshing statuses:', error);
+    console.error("Error refreshing statuses:", error);
     res.status(500).json({
       success: false,
-      message: 'Failed to refresh statuses',
-      error: error instanceof Error ? error.message : 'Unknown error'
+      message: "Failed to refresh statuses",
+      error: error instanceof Error ? error.message : "Unknown error",
     });
   }
 };

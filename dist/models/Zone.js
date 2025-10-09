@@ -68,6 +68,7 @@ const ZoneSchema = new mongoose_1.Schema({
     assignedAgentId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', default: null, index: true },
     teamId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Team', default: null, index: true },
     status: { type: String, enum: ['DRAFT', 'ACTIVE', 'INACTIVE', 'SCHEDULED', 'COMPLETED'], default: 'DRAFT', index: true },
+    zoneType: { type: String, enum: ['MANUAL', 'MAP'], required: true, default: 'MAP', index: true },
     createdBy: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User' },
 }, { timestamps: true });
 // Re-enable 2dsphere index now that polygon closure is fixed

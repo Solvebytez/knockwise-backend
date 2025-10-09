@@ -1,5 +1,5 @@
-import { Response } from 'express';
-import { AuthRequest } from '../middleware/auth';
+import { Response } from "express";
+import { AuthRequest } from "../middleware/auth";
 export declare function createActivity(req: AuthRequest, res: Response): Promise<void>;
 export declare function listMyActivities(req: AuthRequest, res: Response): Promise<void>;
 export declare function listAllActivities(req: AuthRequest, res: Response): Promise<void>;

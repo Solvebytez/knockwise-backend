@@ -1,5 +1,5 @@
-import { Response } from 'express';
-import { AuthRequest } from '../middleware/auth';
+import { Response } from "express";
+import { AuthRequest } from "../middleware/auth";
 export declare const createZone: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 export declare const listZones: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 export declare const checkZoneOverlapBeforeCreate: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;

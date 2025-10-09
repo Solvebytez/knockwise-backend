@@ -1,16 +1,19 @@
-import { Router } from 'express';
-import { requireAuth, requireRoles } from '../middleware/auth';
-import { validate } from '../utils/validator';
-import { 
-  createTeam, 
-  getMyTeams, 
-  getTeamById, 
-  updateTeam, 
+import { Router } from "express";
+import { requireAuth, requireRoles } from "../middleware/auth";
+import { validate } from "../utils/validator";
+import {
+  createTeam,
+  getMyTeams,
+  getTeamById,
+  updateTeam,
   deleteTeam,
   getTeamStats,
-  getTeamPerformance
-} from '../controllers/team.controller';
-import { createTeamValidation, updateTeamValidation } from '../validators/team.validator';
+  getTeamPerformance,
+} from "../controllers/team.controller";
+import {
+  createTeamValidation,
+  updateTeamValidation,
+} from "../validators/team.validator";
 
 const router = Router();
 
@@ -100,8 +103,8 @@ router.use(requireAuth);
  *         description: Team name already exists
  */
 router.post(
-  '/',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   validate(createTeamValidation),
   createTeam
 );
@@ -170,11 +173,7 @@ router.post(
  *                     pages:
  *                       type: integer
  */
-router.get(
-  '/',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
-  getMyTeams
-);
+router.get("/", requireRoles("SUPERADMIN", "SUBADMIN"), getMyTeams);
 
 /**
  * @openapi
@@ -238,11 +237,7 @@ router.get(
  *                           type: integer
  *                           example: 18
  */
-router.get(
-  '/stats',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
-  getTeamStats
-);
+router.get("/stats", requireRoles("SUPERADMIN", "SUBADMIN"), getTeamStats);
 
 /**
  * @openapi
@@ -288,8 +283,8 @@ router.get(
  *                         example: 4
  */
 router.get(
-  '/performance',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/performance",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   getTeamPerformance
 );
 
@@ -316,8 +311,8 @@ router.get(
  *         description: Team not found
  */
 router.get(
-  '/:teamId',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/:teamId",
+  requireRoles("SUPERADMIN", "SUBADMIN", "AGENT"),
   getTeamById
 );
 
@@ -364,8 +359,8 @@ router.get(
  *         description: Team name already exists
  */
 router.put(
-  '/:teamId',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/:teamId",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   validate(updateTeamValidation),
   updateTeam
 );
@@ -392,10 +387,6 @@ router.put(
  *       404:
  *         description: Team not found
  */
-router.delete(
-  '/:teamId',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
-  deleteTeam
-);
+router.delete("/:teamId", requireRoles("SUPERADMIN", "SUBADMIN"), deleteTeam);
 
 export default router;

@@ -102,6 +102,10 @@ export const updateZoneValidation = [
     .optional()
     .isArray()
     .withMessage('Coordinates must be an array'),
+  body('zoneType')
+    .optional()
+    .isIn(['MANUAL', 'MAP'])
+    .withMessage('Zone type must be either MANUAL or MAP'),
   body('status')
     .optional()
     .isIn(['DRAFT', 'ACTIVE', 'INACTIVE', 'SCHEDULED', 'COMPLETED'])

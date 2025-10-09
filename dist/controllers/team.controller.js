@@ -8,10 +8,15 @@ const Team_1 = require("../models/Team");
 const User_1 = require("../models/User");
 const AgentTeamAssignment_1 = require("../models/AgentTeamAssignment");
 const AgentZoneAssignment_1 = require("../models/AgentZoneAssignment");
+const ScheduledAssignment_1 = require("../models/ScheduledAssignment");
 const Activity_1 = require("../models/Activity");
 const Performance_1 = require("../models/Performance");
 const Route_1 = require("../models/Route");
 const mongoose_1 = __importDefault(require("mongoose"));
+// Import updateAgentStatus from user controller
+const { updateAgentStatus } = require('./user.controller');
+// Import updateUserAssignmentStatus from assignment controller
+const { updateUserAssignmentStatus } = require('./assignment.controller');
 // Import syncAgentZoneIds function from assignment controller
 const syncAgentZoneIds = async (agentId) => {
     try {
@@ -22,8 +27,10 @@ const syncAgentZoneIds = async (agentId) => {
             effectiveTo: null
         }).populate('zoneId', '_id');
         const agent = await User_1.User.findById(agentId);
-        if (!agent)
+        if (!agent) {
+            console.warn(`Agent ${agentId} not found during zone sync`);
             return;
+        }
         // Get team-based assignments for this agent's teams
         const teamAssignments = await AgentZoneAssignment_1.AgentZoneAssignment.find({
             teamId: { $in: agent.teamIds },
@@ -45,6 +52,55 @@ const syncAgentZoneIds = async (agentId) => {
     }
     catch (error) {
         console.error('Error syncing agent zoneIds:', error);
+        // Don't throw error to prevent transaction rollback, but log it
+    }
+};
+// Helper function to log team changes for audit
+const logTeamChange = async (action, teamId, details, currentUserId) => {
+    try {
+        console.log(`[AUDIT] Team ${action}:`, {
+            teamId,
+            action,
+            details,
+            performedBy: currentUserId,
+            timestamp: new Date().toISOString()
+        });
+        // TODO: Add to database audit log table in future
+    }
+    catch (error) {
+        console.error('Error logging team change:', error);
+    }
+};
+// Helper function to validate team data consistency
+const validateTeamConsistency = async (teamId) => {
+    try {
+        const team = await Team_1.Team.findById(teamId).populate('agentIds');
+        if (!team)
+            return false;
+        // Check if all team members exist
+        const memberIds = team.agentIds.map((agent) => agent._id);
+        const existingMembers = await User_1.User.countDocuments({
+            _id: { $in: memberIds },
+            role: 'AGENT'
+        });
+        if (existingMembers !== memberIds.length) {
+            console.error(`Team ${teamId} has ${memberIds.length - existingMembers} invalid members`);
+            return false;
+        }
+        // Check if team assignments are consistent
+        const teamAssignments = await AgentTeamAssignment_1.AgentTeamAssignment.find({ teamId });
+        const assignmentMemberIds = teamAssignments.map(a => a.agentId.toString());
+        const missingAssignments = memberIds.filter(id => !assignmentMemberIds.includes(id.toString()));
+        const extraAssignments = assignmentMemberIds.filter(id => !memberIds.map(m => m.toString()).includes(id));
+        if (missingAssignments.length > 0 || extraAssignments.length > 0) {
+            console.error(`Team ${teamId} has inconsistent assignments. Missing: ${missingAssignments.length}, Extra: ${extraAssignments.length}`);
+            return false;
+        }
+        return true;
+    }
+    catch (error) {
+        console.error('Error validating team consistency:', error);
+        return false;
     }
 };
 // Helper function to calculate team status based on zone assignments
@@ -177,16 +233,54 @@ const updateTeamAssignmentStatus = async (teamId, session) => {
 };
 // Create a new team
 const createTeam = async (req, res) => {
+    const session = await mongoose_1.default.startSession();
+    session.startTransaction();
     try {
         const { name, description, memberIds, agentIds } = req.body;
         const memberIdsToUse = memberIds || agentIds; // Handle both field names
         const currentUserId = req.user?.sub;
-        // Check if team name already exists for this admin
+        // Input validation
+        if (!name || typeof name !== 'string' || name.trim().length === 0) {
+            await session.abortTransaction();
+            return res.status(400).json({
+                success: false,
+                message: 'Team name is required and must be a non-empty string'
+            });
+        }
+        if (name.trim().length > 100) {
+            await session.abortTransaction();
+            return res.status(400).json({
+                success: false,
+                message: 'Team name must be less than 100 characters'
+            });
+        }
+        if (description && typeof description === 'string' && description.length > 500) {
+            await session.abortTransaction();
+            return res.status(400).json({
+                success: false,
+                message: 'Team description must be less than 500 characters'
+            });
+        }
+        if (!memberIdsToUse || !Array.isArray(memberIdsToUse) || memberIdsToUse.length === 0) {
+            await session.abortTransaction();
+            return res.status(400).json({
+                success: false,
+                message: 'At least one team member is required'
+            });
+        }
+        if (memberIdsToUse.length > 20) {
+            await session.abortTransaction();
+            return res.status(400).json({
+                success: false,
+                message: 'Team cannot have more than 20 members'
+            });
+        }
+        // Check if team name already exists globally
         const existingTeam = await Team_1.Team.findOne({
-            name,
-            createdBy: currentUserId
-        });
+            name
+        }).session(session);
         if (existingTeam) {
+            await session.abortTransaction();
             return res.status(409).json({
                 success: false,
                 message: 'Team with this name already exists'
@@ -198,15 +292,54 @@ const createTeam = async (req, res) => {
                 _id: { $in: memberIdsToUse },
                 role: 'AGENT',
                 createdBy: currentUserId
-            });
+            }).populate('teamIds', 'name status').session(session);
             if (validMembers.length !== memberIdsToUse.length) {
+                await session.abortTransaction();
                 return res.status(400).json({
                     success: false,
                     message: 'Some member IDs are invalid or do not belong to agents created by you'
                 });
             }
-            // Select the first member as team leader (or you can implement custom logic)
-            const teamLeaderId = memberIdsToUse[0];
+            // Enhanced validation with contextual logic
+            if (memberIdsToUse.length === 0) {
+                await session.abortTransaction();
+                return res.status(400).json({
+                    success: false,
+                    message: 'Team must have at least one member'
+                });
+            }
+            // Check if members already have active assignments (contextual warning)
+            const membersWithActiveAssignments = await AgentZoneAssignment_1.AgentZoneAssignment.find({
+                agentId: { $in: memberIdsToUse },
+                status: { $nin: ['COMPLETED', 'CANCELLED'] },
+                effectiveTo: null
+            }).session(session);
+            // Check if members have scheduled assignments
+            const { ScheduledAssignment } = require('../models/ScheduledAssignment');
+            const membersWithScheduledAssignments = await ScheduledAssignment.find({
+                agentId: { $in: memberIdsToUse },
+                status: 'PENDING'
+            }).session(session);
+            // Collect warnings for admin
+            const warnings = [];
+            if (membersWithActiveAssignments.length > 0) {
+                warnings.push(`${membersWithActiveAssignments.length} members have active zone assignments`);
+            }
+            if (membersWithScheduledAssignments.length > 0) {
+                warnings.push(`${membersWithScheduledAssignments.length} members have scheduled assignments`);
+            }
+            // Check if any members already belong to other teams
+            const membersWithOtherTeams = await User_1.User.find({
+                _id: { $in: memberIdsToUse },
+                teamIds: { $exists: true, $ne: [] }
+            }).session(session);
+            if (membersWithOtherTeams.length > 0) {
+                warnings.push(`${membersWithOtherTeams.length} members already belong to other teams`);
+            }
+            // Select team leader based on custom logic
+            // Priority: 1. Most experienced agent (based on creation date), 2. First in list
+            const sortedMembers = validMembers.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+            const teamLeaderId = sortedMembers[0]?._id;
             // Create the team
             const team = new Team_1.Team({
                 name,
@@ -216,7 +349,7 @@ const createTeam = async (req, res) => {
                 leaderId: teamLeaderId,
                 agentIds: memberIdsToUse
             });
-            await team.save();
+            await team.save({ session });
             // Create team assignments for all members
             const teamAssignments = memberIdsToUse.map((agentId) => ({
                 agentId,
@@ -225,12 +358,81 @@ const createTeam = async (req, res) => {
                 status: 'ACTIVE',
                 assignedBy: currentUserId
             }));
-            await AgentTeamAssignment_1.AgentTeamAssignment.insertMany(teamAssignments);
-            // Update users with team information
-            await User_1.User.updateMany({ _id: { $in: memberIdsToUse } }, {
-                $addToSet: { teamIds: team._id },
-                $set: { primaryTeamId: team._id }
-            });
+            await AgentTeamAssignment_1.AgentTeamAssignment.insertMany(teamAssignments, { session });
+            // Enhanced member assignment with contextual logic
+            // Split members based on existing primary team
+            const membersWithoutPrimary = await User_1.User.find({
+                _id: { $in: memberIdsToUse },
+                $or: [
+                    { primaryTeamId: { $exists: false } },
+                    { primaryTeamId: null }
+                ]
+            }).session(session);
+            const membersWithPrimary = memberIdsToUse.filter(id => !membersWithoutPrimary.some((m) => m._id.toString() === id.toString()));
+            // Set primary team only for members who don't have one
+            if (membersWithoutPrimary.length > 0) {
+                await User_1.User.updateMany({ _id: { $in: membersWithoutPrimary.map((m) => m._id) } }, {
+                    $addToSet: { teamIds: team._id },
+                    $set: { primaryTeamId: team._id }
+                }, { session });
+            }
+            // Just add to teamIds for members who already have primary
+            if (membersWithPrimary.length > 0) {
+                await User_1.User.updateMany({ _id: { $in: membersWithPrimary } }, { $addToSet: { teamIds: team._id } }, { session });
+            }
+            // Zone inheritance logic: Check if members have zones from other teams
+            for (const memberId of memberIdsToUse) {
+                const agent = await User_1.User.findById(memberId).session(session);
+                if (agent && agent.teamIds && agent.teamIds.length > 0) {
+                    // Get zones from other teams this member belongs to
+                    const otherTeamZones = await AgentZoneAssignment_1.AgentZoneAssignment.find({
+                        teamId: { $in: agent.teamIds },
+                        status: { $nin: ['COMPLETED', 'CANCELLED'] },
+                        effectiveTo: null
+                    }).session(session);
+                    // Add these zones to the new team (if not already assigned)
+                    for (const zoneAssignment of otherTeamZones) {
+                        const existingAssignment = await AgentZoneAssignment_1.AgentZoneAssignment.findOne({
+                            teamId: team._id,
+                            zoneId: zoneAssignment.zoneId,
+                            status: { $nin: ['COMPLETED', 'CANCELLED'] },
+                            effectiveTo: null
+                        }).session(session);
+                        if (!existingAssignment) {
+                            await AgentZoneAssignment_1.AgentZoneAssignment.create([{
+                                    teamId: team._id,
+                                    zoneId: zoneAssignment.zoneId,
+                                    status: 'ACTIVE',
+                                    effectiveFrom: new Date(),
+                                    assignedBy: currentUserId
+                                }], { session });
+                        }
+                    }
+                }
+            }
+            await session.commitTransaction();
+            // Post-creation status synchronization
+            await Promise.all(memberIdsToUse.map(memberId => {
+                return Promise.all([
+                    syncAgentZoneIds(memberId),
+                    updateAgentStatus(memberId),
+                    updateUserAssignmentStatus(memberId)
+                ]);
+            }));
+            // Update team status based on zone assignments
+            await updateTeamStatus(team._id.toString());
+            await updateTeamAssignmentStatus(team._id.toString(), session);
+            // Log team creation for audit with enhanced details
+            await logTeamChange('CREATED', team._id.toString(), {
+                name: team.name,
+                description: team.description,
+                leaderId: team.leaderId,
+                memberCount: memberIdsToUse.length,
+                members: memberIdsToUse,
+                membersWithoutPrimary: membersWithoutPrimary.length,
+                membersWithPrimary: membersWithPrimary.length,
+                warnings: warnings
+            }, currentUserId || 'unknown');
             // Populate the response with member details
             const populatedTeam = await Team_1.Team.findById(team._id)
                 .populate('leaderId', 'name email')
@@ -239,10 +441,22 @@ const createTeam = async (req, res) => {
             res.status(201).json({
                 success: true,
                 message: 'Team created successfully',
-                data: populatedTeam
+                data: {
+                    team: populatedTeam,
+                    contextualInfo: {
+                        membersAdded: memberIdsToUse.length,
+                        membersWithoutPrimaryTeam: membersWithoutPrimary.length,
+                        membersWithExistingPrimary: membersWithPrimary.length,
+                        membersWithActiveAssignments: membersWithActiveAssignments.length,
+                        membersWithScheduledAssignments: membersWithScheduledAssignments.length,
+                        membersWithOtherTeams: membersWithOtherTeams.length,
+                        warnings: warnings.length > 0 ? warnings : null
+                    }
+                }
             });
         }
         else {
+            await session.abortTransaction();
             return res.status(400).json({
                 success: false,
                 message: 'At least one team member is required'
@@ -250,12 +464,16 @@ const createTeam = async (req, res) => {
         }
     }
     catch (error) {
+        await session.abortTransaction();
         console.error('Error creating team:', error);
         res.status(500).json({
             success: false,
             message: 'Failed to create team',
             error: error instanceof Error ? error.message : 'Unknown error'
         });
+    }
+    finally {
+        session.endSession();
     }
 };
 exports.createTeam = createTeam;
@@ -487,6 +705,8 @@ const getTeamById = async (req, res) => {
 exports.getTeamById = getTeamById;
 // Update team
 const updateTeam = async (req, res) => {
+    const session = await mongoose_1.default.startSession();
+    session.startTransaction();
     try {
         const { teamId } = req.params;
         const { name, description, memberIds, agentIds } = req.body;
@@ -495,21 +715,22 @@ const updateTeam = async (req, res) => {
         const team = await Team_1.Team.findOne({
             _id: teamId,
             createdBy: currentUserId
-        });
+        }).session(session);
         if (!team) {
+            await session.abortTransaction();
             return res.status(404).json({
                 success: false,
                 message: 'Team not found'
             });
         }
-        // Check if new name conflicts with existing team
+        // Check if new name conflicts with existing team globally
         if (name && name !== team.name) {
             const existingTeam = await Team_1.Team.findOne({
                 name,
-                createdBy: currentUserId,
                 _id: { $ne: teamId }
-            });
+            }).session(session);
             if (existingTeam) {
+                await session.abortTransaction();
                 return res.status(409).json({
                     success: false,
                     message: 'Team with this name already exists'
@@ -522,6 +743,22 @@ const updateTeam = async (req, res) => {
         // Find added and removed members
         const addedMembers = newMemberIds.filter((id) => !currentMemberIds.includes(id));
         const removedMembers = currentMemberIds.filter(id => !newMemberIds.includes(id));
+        // Validate minimum team size
+        if (memberIdsToUse && memberIdsToUse.length === 0) {
+            await session.abortTransaction();
+            return res.status(400).json({
+                success: false,
+                message: 'Team must have at least one member'
+            });
+        }
+        // Log the comparison for debugging
+        console.log('Member comparison:', {
+            currentMemberIds,
+            newMemberIds,
+            addedMembers,
+            removedMembers,
+            hasChanges: addedMembers.length > 0 || removedMembers.length > 0
+        });
         // Update team
         const updateData = {};
         if (name)
@@ -530,16 +767,35 @@ const updateTeam = async (req, res) => {
             updateData.description = description;
         if (memberIdsToUse) {
             updateData.agentIds = memberIdsToUse;
-            updateData.leaderId = memberIdsToUse[0]; // Set first member as leader
+            // Select team leader based on custom logic
+            // Priority: 1. Current leader if still in team, 2. Most experienced agent, 3. First in list
+            let newLeaderId = memberIdsToUse[0];
+            // If current leader is still in the team, keep them
+            if (team.leaderId && memberIdsToUse.includes(team.leaderId.toString())) {
+                newLeaderId = team.leaderId;
+            }
+            else {
+                // Find most experienced agent (earliest creation date)
+                const validMembers = await User_1.User.find({
+                    _id: { $in: memberIdsToUse },
+                    role: 'AGENT',
+                    createdBy: currentUserId
+                }).session(session);
+                if (validMembers.length > 0) {
+                    const sortedMembers = validMembers.sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+                    newLeaderId = sortedMembers[0]?._id;
+                }
+            }
+            updateData.leaderId = newLeaderId;
         }
-        const updatedTeam = await Team_1.Team.findByIdAndUpdate(teamId, updateData, { new: true, runValidators: true })
+        const updatedTeam = await Team_1.Team.findByIdAndUpdate(teamId, updateData, { new: true, runValidators: true, session })
             .populate('leaderId', 'name email')
             .populate('agentIds', 'name email status')
             .populate('createdBy', 'name email');
         // Update team assignments if members changed
         if (memberIdsToUse) {
             // Remove old assignments
-            await AgentTeamAssignment_1.AgentTeamAssignment.deleteMany({ teamId });
+            await AgentTeamAssignment_1.AgentTeamAssignment.deleteMany({ teamId }, { session });
             // Create new assignments
             const teamAssignments = memberIdsToUse.map((agentId) => ({
                 agentId,
@@ -548,7 +804,7 @@ const updateTeam = async (req, res) => {
                 status: 'ACTIVE',
                 assignedBy: currentUserId
             }));
-            await AgentTeamAssignment_1.AgentTeamAssignment.insertMany(teamAssignments);
+            await AgentTeamAssignment_1.AgentTeamAssignment.insertMany(teamAssignments, { session });
         }
         // Sync zone assignments for team members
         if (addedMembers.length > 0 || removedMembers.length > 0) {
@@ -558,41 +814,216 @@ const updateTeam = async (req, res) => {
                 teamId: teamId,
                 status: { $nin: ['COMPLETED', 'CANCELLED'] },
                 effectiveTo: null
-            });
-            // For added members: Add team to their teamIds and sync zoneIds
-            for (const memberId of addedMembers) {
-                // Add team to agent's teamIds
-                await User_1.User.findByIdAndUpdate(memberId, {
-                    $addToSet: { teamIds: teamId }
-                });
-                // Sync their zoneIds to include team zones
-                await syncAgentZoneIds(memberId);
-                console.log(`Added team ${teamId} to member ${memberId} and synced zone assignments`);
-            }
-            // For removed members: Remove team from their teamIds and sync zoneIds
-            for (const memberId of removedMembers) {
-                // Remove team from agent's teamIds
-                await User_1.User.findByIdAndUpdate(memberId, {
-                    $pull: { teamIds: teamId }
-                });
-                // Remove team zones from the agent's zoneIds
-                const agent = await User_1.User.findById(memberId);
-                if (agent && agent.zoneIds && agent.zoneIds.length > 0) {
-                    const teamZoneIds = teamZoneAssignments.map(assignment => assignment.zoneId.toString());
-                    const remainingZoneIds = agent.zoneIds.filter(zoneId => !teamZoneIds.includes(zoneId.toString()));
-                    await User_1.User.findByIdAndUpdate(memberId, {
-                        zoneIds: remainingZoneIds
+            }).session(session);
+            // Batch operations for better performance
+            if (addedMembers.length > 0) {
+                // Get team's current zone assignments (active and scheduled only)
+                const teamZoneAssignments = await AgentZoneAssignment_1.AgentZoneAssignment.find({
+                    teamId: teamId,
+                    status: { $in: ['ACTIVE', 'SCHEDULED'] },
+                    effectiveTo: null
+                }).session(session);
+                // Check zone limit (max 5 zones per team)
+                if (teamZoneAssignments.length >= 5) {
+                    await session.abortTransaction();
+                    return res.status(400).json({
+                        success: false,
+                        message: 'Team cannot have more than 5 active zones'
                     });
-                    console.log(`Removed team zones from member ${memberId}. Remaining zones: ${remainingZoneIds.length}`);
                 }
-                // Sync the agent's zoneIds to ensure consistency
-                await syncAgentZoneIds(memberId);
-                console.log(`Removed team ${teamId} from member ${memberId} and synced zone assignments`);
+                // FIXED: Add team to all added members' teamIds AND create zone assignments
+                const teamZoneIds = teamZoneAssignments.map(assignment => assignment.zoneId);
+                // Batch update: Add team to all added members' teamIds
+                await User_1.User.updateMany({ _id: { $in: addedMembers } }, { $addToSet: { teamIds: teamId } }, { session });
+                console.log(`Added team ${teamId} to teamIds for ${addedMembers.length} new members`);
+                // Create zone assignments for new members with team's existing zones
+                if (teamZoneIds.length > 0) {
+                    // Create zone assignments for new members
+                    const newZoneAssignments = [];
+                    for (const memberId of addedMembers) {
+                        for (const zoneId of teamZoneIds) {
+                            newZoneAssignments.push({
+                                agentId: memberId,
+                                zoneId: zoneId,
+                                teamId: teamId,
+                                effectiveFrom: new Date(),
+                                status: 'ACTIVE',
+                                assignedBy: currentUserId
+                            });
+                        }
+                    }
+                    if (newZoneAssignments.length > 0) {
+                        await AgentZoneAssignment_1.AgentZoneAssignment.insertMany(newZoneAssignments, { session });
+                        console.log(`Created ${newZoneAssignments.length} zone assignments for ${addedMembers.length} new members`);
+                    }
+                }
+                // Add team zones to members' zoneIds (avoid duplicates)
+                for (const memberId of addedMembers) {
+                    const agent = await User_1.User.findById(memberId).session(session);
+                    if (agent) {
+                        const existingZoneIds = agent.zoneIds || [];
+                        const newZoneIds = teamZoneIds.filter(zoneId => !existingZoneIds.includes(zoneId));
+                        if (newZoneIds.length > 0) {
+                            await User_1.User.findByIdAndUpdate(memberId, {
+                                $addToSet: { zoneIds: newZoneIds }
+                            }, { session });
+                        }
+                    }
+                }
+                // FIXED: Handle existing routes and scheduled assignments for new members
+                // Check if new members have existing routes that should be updated
+                for (const memberId of addedMembers) {
+                    const existingRoutes = await Route_1.Route.find({
+                        agentId: memberId,
+                        teamId: { $exists: false }, // Routes not assigned to any team
+                        status: { $in: ['DRAFT', 'PLANNED'] }
+                    }).session(session);
+                    if (existingRoutes.length > 0) {
+                        // Update existing routes to include team assignment
+                        await Route_1.Route.updateMany({ agentId: memberId, teamId: { $exists: false }, status: { $in: ['DRAFT', 'PLANNED'] } }, { teamId: teamId }, { session });
+                        console.log(`Updated ${existingRoutes.length} existing routes for new member ${memberId} to include team ${teamId}`);
+                    }
+                }
+                console.log(`Added team ${teamId} to ${addedMembers.length} members and synced zone assignments`);
+            }
+            if (removedMembers.length > 0) {
+                // Note: Minimum team size is already validated above, so this check is redundant
+                // The team will always have at least 1 member after the operation
+                // FIXED: Remove team from all removed members' teamIds AND zone assignments
+                const teamZoneIds = teamZoneAssignments.map(assignment => assignment.zoneId);
+                // Batch update: Remove team from all removed members' teamIds
+                await User_1.User.updateMany({ _id: { $in: removedMembers } }, { $pull: { teamIds: teamId } }, { session });
+                console.log(`Removed team ${teamId} from teamIds for ${removedMembers.length} removed members`);
+                // FIXED: Only remove zone assignments for the specific removed members, NOT all team assignments
+                await AgentZoneAssignment_1.AgentZoneAssignment.deleteMany({
+                    teamId: teamId,
+                    agentId: { $in: removedMembers }, // Only for removed members
+                    status: { $in: ['ACTIVE', 'SCHEDULED'] },
+                    effectiveTo: null
+                }, { session });
+                console.log(`Removed zone assignments for ${removedMembers.length} removed members from team ${teamId}`);
+                // For removed members: Remove only the team's zones from their zoneIds
+                // Keep zones from other teams or individual assignments
+                for (const memberId of removedMembers) {
+                    const member = await User_1.User.findById(memberId).session(session);
+                    if (member && member.zoneIds && member.zoneIds.length > 0) {
+                        // Remove only the zones that were assigned to this team
+                        const zonesToRemove = teamZoneIds.filter(zoneId => member.zoneIds.includes(zoneId));
+                        if (zonesToRemove.length > 0) {
+                            await User_1.User.findByIdAndUpdate(memberId, {
+                                $pull: { zoneIds: { $in: zonesToRemove } }
+                            }, { session });
+                            console.log(`Removed ${zonesToRemove.length} team zones from removed member ${memberId}`);
+                        }
+                    }
+                }
+                // Clear primaryTeamId if it was this team
+                await User_1.User.updateMany({ _id: { $in: removedMembers }, primaryTeamId: teamId }, { $unset: { primaryTeamId: 1 } }, { session });
+                // Clear primaryZoneId for removed members who no longer have zone assignments
+                for (const memberId of removedMembers) {
+                    const member = await User_1.User.findById(memberId).session(session);
+                    if (member && member.zoneIds && member.zoneIds.length === 0) {
+                        await User_1.User.findByIdAndUpdate(memberId, {
+                            $unset: { primaryZoneId: 1 }
+                        }, { session });
+                    }
+                }
+                // FIXED: Update ScheduledAssignment records for removed members
+                // Cancel or reassign scheduled assignments for removed members
+                const scheduledAssignmentsToUpdate = await ScheduledAssignment_1.ScheduledAssignment.find({
+                    teamId: teamId,
+                    status: 'PENDING'
+                }).session(session);
+                if (scheduledAssignmentsToUpdate.length > 0) {
+                    // For team-based scheduled assignments, we need to check if any remaining members can take them
+                    const remainingMembers = newMemberIds.filter((id) => !removedMembers.includes(id));
+                    if (remainingMembers.length === 0) {
+                        // No remaining members, cancel all scheduled assignments
+                        await ScheduledAssignment_1.ScheduledAssignment.updateMany({ teamId: teamId, status: 'PENDING' }, { status: 'CANCELLED' }, { session });
+                        console.log(`Cancelled ${scheduledAssignmentsToUpdate.length} scheduled assignments for team ${teamId} (no remaining members)`);
+                    }
+                    else {
+                        // Keep team-based assignments but they'll be handled by remaining members
+                        console.log(`Kept ${scheduledAssignmentsToUpdate.length} scheduled assignments for remaining team members`);
+                    }
+                }
+                // FIXED: Update Route records for removed members
+                // Routes assigned to removed members should be cancelled or reassigned
+                const routesToUpdate = await Route_1.Route.find({
+                    teamId: teamId,
+                    status: { $in: ['DRAFT', 'PLANNED'] } // Only update routes that haven't started
+                }).session(session);
+                if (routesToUpdate.length > 0) {
+                    const remainingMembers = newMemberIds.filter((id) => !removedMembers.includes(id));
+                    if (remainingMembers.length === 0) {
+                        // No remaining members, cancel all routes
+                        await Route_1.Route.updateMany({ teamId: teamId, status: { $in: ['DRAFT', 'PLANNED'] } }, { status: 'CANCELLED' }, { session });
+                        console.log(`Cancelled ${routesToUpdate.length} routes for team ${teamId} (no remaining members)`);
+                    }
+                    else {
+                        // For routes assigned to removed members, reassign to remaining members
+                        for (const route of routesToUpdate) {
+                            if (removedMembers.includes(route.agentId.toString())) {
+                                // Reassign to first remaining member
+                                await Route_1.Route.findByIdAndUpdate(route._id, {
+                                    agentId: remainingMembers[0]
+                                }, { session });
+                                console.log(`Reassigned route ${route._id} from removed member to ${remainingMembers[0]}`);
+                            }
+                        }
+                    }
+                }
+                console.log(`Removed team ${teamId} from ${removedMembers.length} members and synced zone assignments`);
             }
             // Update team status
             if (teamId) {
-                await updateTeamStatus(teamId);
+                await updateTeamStatus(teamId.toString());
             }
+        }
+        await session.commitTransaction();
+        // Post-transaction operations (outside transaction to avoid failures)
+        try {
+            // Sync zoneIds and status for all affected members
+            if (addedMembers.length > 0) {
+                await Promise.all(addedMembers.map((memberId) => syncAgentZoneIds(memberId)));
+                await Promise.all(addedMembers.map((memberId) => updateAgentStatus(memberId)));
+                await Promise.all(addedMembers.map((memberId) => updateUserAssignmentStatus(memberId)));
+            }
+            if (removedMembers.length > 0) {
+                await Promise.all(removedMembers.map((memberId) => syncAgentZoneIds(memberId)));
+                await Promise.all(removedMembers.map((memberId) => updateAgentStatus(memberId)));
+                await Promise.all(removedMembers.map((memberId) => updateUserAssignmentStatus(memberId)));
+            }
+            // Update team status
+            if (teamId) {
+                await updateTeamStatus(teamId.toString());
+            }
+            // Update assignment status for remaining members (those not added or removed)
+            const remainingMembers = newMemberIds.filter((id) => !addedMembers.includes(id) && !removedMembers.includes(id));
+            if (remainingMembers.length > 0) {
+                await Promise.all(remainingMembers.map((memberId) => updateUserAssignmentStatus(memberId)));
+            }
+            // Log team update for audit
+            if (teamId) {
+                await logTeamChange('UPDATED', teamId.toString(), {
+                    name: name || team.name,
+                    description: description !== undefined ? description : team.description,
+                    addedMembers,
+                    removedMembers,
+                    newLeaderId: updateData.leaderId,
+                    previousLeaderId: team.leaderId
+                }, currentUserId || 'unknown');
+                // Validate data consistency after update
+                const isConsistent = await validateTeamConsistency(teamId.toString());
+                if (!isConsistent) {
+                    console.warn(`Team ${teamId} data consistency check failed after update`);
+                    // Don't fail the request, but log the warning
+                }
+            }
+        }
+        catch (postUpdateError) {
+            console.error('Error in post-transaction operations:', postUpdateError);
+            // Don't fail the main request, but log the error
         }
         res.json({
             success: true,
@@ -601,12 +1032,16 @@ const updateTeam = async (req, res) => {
         });
     }
     catch (error) {
+        await session.abortTransaction();
         console.error('Error updating team:', error);
         res.status(500).json({
             success: false,
             message: 'Failed to update team',
             error: error instanceof Error ? error.message : 'Unknown error'
         });
+    }
+    finally {
+        session.endSession();
     }
 };
 exports.updateTeam = updateTeam;

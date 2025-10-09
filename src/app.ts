@@ -1,50 +1,51 @@
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import compression from 'compression';
-import morgan from 'morgan';
-import rateLimit from 'express-rate-limit';
-import cookieParser from 'cookie-parser';
-import swaggerUi from 'swagger-ui-express';
-import { swaggerSpec } from './config/swagger';
-import { connectDatabase } from './config/database';
-import { notFound, errorHandler } from './middleware/errors';
+import express from "express";
+import cors from "cors";
+import helmet from "helmet";
+import compression from "compression";
+import morgan from "morgan";
+import rateLimit from "express-rate-limit";
+import cookieParser from "cookie-parser";
+import swaggerUi from "swagger-ui-express";
+import { swaggerSpec } from "./config/swagger";
+import { connectDatabase } from "./config/database";
+import { notFound, errorHandler } from "./middleware/errors";
+import { AuthRequest } from "./middleware/auth";
 
 // Import routes
-import authRoutes from './routes/auth.routes';
-import userRoutes from './routes/user.routes';
-import leadRoutes from './routes/lead.routes';
-import appointmentRoutes from './routes/appointment.routes';
-import assignmentRoutes from './routes/assignment.routes';
-import propertyRoutes from './routes/property.routes';
-import residentRoutes from './routes/resident.routes';
-import routeRoutes from './routes/route.routes';
-import zoneRoutes from './routes/zone.routes';
-import activityRoutes from './routes/activity.routes';
-import teamRoutes from './routes/team.routes';
-import addressValidationRoutes from './routes/address-validation.routes';
+import authRoutes from "./routes/auth.routes";
+import userRoutes from "./routes/user.routes";
+import leadRoutes from "./routes/lead.routes";
+import appointmentRoutes from "./routes/appointment.routes";
+import assignmentRoutes from "./routes/assignment.routes";
+import propertyRoutes from "./routes/property.routes";
+import residentRoutes from "./routes/resident.routes";
+import routeRoutes from "./routes/route.routes";
+import zoneRoutes from "./routes/zone.routes";
+import activityRoutes from "./routes/activity.routes";
+import teamRoutes from "./routes/team.routes";
+import addressValidationRoutes from "./routes/address-validation.routes";
 
 const app = express();
 
 // Flexible Rate Limiting Configuration
-const createRateLimiter = (windowMs: number, max: number, skipSuccessfulRequests = false) => {
+const createRateLimiter = (
+  windowMs: number,
+  max: number,
+  skipSuccessfulRequests = false
+) => {
   return rateLimit({
     windowMs,
     max,
     skipSuccessfulRequests,
     message: {
       success: false,
-      message: 'Too many requests, please try again later.'
+      message: "Too many requests, please try again later.",
     },
     standardHeaders: true,
     legacyHeaders: false,
     // Skip rate limiting for development environment
-    skip: (req) => process.env.NODE_ENV === 'development',
-    // Custom key generator to handle different scenarios
-    keyGenerator: (req) => {
-      // Use user ID if available, otherwise use IP
-      return req.user?.sub || req.ip;
-    }
+    skip: (req) => process.env.NODE_ENV === "development",
+    // Remove custom keyGenerator to use built-in IP handling which properly supports IPv6
   });
 };
 
@@ -54,68 +55,68 @@ const moderateLimiter = createRateLimiter(15 * 60 * 1000, 200); // 200 requests 
 const lenientLimiter = createRateLimiter(15 * 60 * 1000, 500); // 500 requests per 15 minutes
 
 const corsOptions = {
-  origin: ['http://localhost:3000', 'http://localhost:3001'],
+  origin: ["http://localhost:3000", "http://localhost:3001"],
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'Authorization', 'X-Requested-With'],
+  methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+  allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
 };
 
 // Middleware
 app.use(helmet());
 app.use(cors(corsOptions));
 app.use(compression());
-app.use(express.json({ limit: '10mb' }));
+app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser(process.env.COOKIE_SECRET));
-app.use(morgan('combined'));
+app.use(morgan("combined"));
 
 // Apply rate limiting selectively
 // Strict limits for auth routes
-app.use('/api/auth', strictLimiter);
+app.use("/api/auth", strictLimiter);
 
 // Moderate limits for data-heavy routes
-app.use('/api/users', moderateLimiter);
-app.use('/api/teams', moderateLimiter);
-app.use('/api/zones', moderateLimiter);
-app.use('/api/assignments', moderateLimiter);
+app.use("/api/users", moderateLimiter);
+app.use("/api/teams", moderateLimiter);
+app.use("/api/zones", moderateLimiter);
+app.use("/api/assignments", moderateLimiter);
 
 // Lenient limits for other routes
-app.use('/api/leads', lenientLimiter);
-app.use('/api/appointments', lenientLimiter);
-app.use('/api/properties', lenientLimiter);
-app.use('/api/residents', lenientLimiter);
-app.use('/api/routes', lenientLimiter);
-app.use('/api/activities', lenientLimiter);
-app.use('/api/address-validation', lenientLimiter);
+app.use("/api/leads", lenientLimiter);
+app.use("/api/appointments", lenientLimiter);
+app.use("/api/properties", lenientLimiter);
+app.use("/api/residents", lenientLimiter);
+app.use("/api/routes", lenientLimiter);
+app.use("/api/activities", lenientLimiter);
+app.use("/api/address-validation", lenientLimiter);
 
 // Health check endpoint
-app.get('/health', (req, res) => {
+app.get("/health", (req, res) => {
   res.json({
     success: true,
-    message: 'KnockWise API is running',
+    message: "KnockWise API is running",
     timestamp: new Date().toISOString(),
-    uptime: process.uptime()
+    uptime: process.uptime(),
   });
 });
 
 // API Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/users', userRoutes);
-app.use('/api/leads', leadRoutes);
-app.use('/api/appointments', appointmentRoutes);
-app.use('/api/assignments', assignmentRoutes);
-app.use('/api/properties', propertyRoutes);
-app.use('/api/residents', residentRoutes);
-app.use('/api/routes', routeRoutes);
-app.use('/api/zones', zoneRoutes);
-app.use('/api/activities', activityRoutes);
-app.use('/api/teams', teamRoutes);
-app.use('/api/address-validation', addressValidationRoutes);
+app.use("/api/auth", authRoutes);
+app.use("/api/users", userRoutes);
+app.use("/api/leads", leadRoutes);
+app.use("/api/appointments", appointmentRoutes);
+app.use("/api/assignments", assignmentRoutes);
+app.use("/api/properties", propertyRoutes);
+app.use("/api/residents", residentRoutes);
+app.use("/api/routes", routeRoutes);
+app.use("/api/zones", zoneRoutes);
+app.use("/api/activities", activityRoutes);
+app.use("/api/teams", teamRoutes);
+app.use("/api/address-validation", addressValidationRoutes);
 
 // Swagger Documentation
-app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerSpec));
-app.get('/openapi.json', (req, res) => {
-  res.setHeader('Content-Type', 'application/json');
+app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.get("/openapi.json", (req, res) => {
+  res.setHeader("Content-Type", "application/json");
   res.send(swaggerSpec);
 });
 
@@ -128,5 +129,3 @@ export const createApp = () => {
 };
 
 export default app;
-
-
