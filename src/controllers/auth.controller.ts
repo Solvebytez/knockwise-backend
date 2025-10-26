@@ -127,11 +127,11 @@ export async function login(req: Request, res: Response): Promise<void> {
     console.log("🌍 isProduction:", isProduction);
 
     const cookieOptions = {
-      httpOnly: true,
+      httpOnly: false, // Allow JavaScript to read cookies for cross-domain auth
       secure: isProduction, // HTTPS in prod, HTTP locally
       sameSite: (isProduction ? "none" : "lax") as "strict" | "lax" | "none",
       path: "/", // important so Next.js can see them
-      domain: isProduction ? ".vercel.app" : undefined, // Allow cookies on Vercel subdomains
+      // No domain restriction - let browser handle cross-domain cookies
     };
 
     // 7. Set cookies
