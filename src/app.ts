@@ -34,6 +34,9 @@ import agentZoneRoutes from "./routes/agentZone.routes";
 
 const app = express();
 
+// Trust proxy for correct IP handling (Render, Vercel, etc.)
+app.set("trust proxy", 1);
+
 // Flexible Rate Limiting Configuration
 const createRateLimiter = (
   windowMs: number,
