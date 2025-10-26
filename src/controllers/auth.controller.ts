@@ -127,11 +127,10 @@ export async function login(req: Request, res: Response): Promise<void> {
     console.log("🌍 isProduction:", isProduction);
 
     const cookieOptions = {
-      httpOnly: false, // Allow JavaScript to read cookies for cross-domain auth
+      httpOnly: true, // Secure cookies for same-origin requests
       secure: isProduction, // HTTPS in prod, HTTP locally
-      sameSite: (isProduction ? "none" : "lax") as "strict" | "lax" | "none",
+      sameSite: (isProduction ? "lax" : "lax") as "strict" | "lax" | "none", // lax for same-origin
       path: "/", // important so Next.js can see them
-      // No domain restriction - let browser handle cross-domain cookies
     };
 
     // 7. Set cookies
