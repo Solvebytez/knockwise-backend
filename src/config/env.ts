@@ -12,7 +12,8 @@ export const env = {
   refreshExpiresIn: process.env.REFRESH_EXPIRES_IN || "30d",
   bcryptSaltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS || "10", 10),
   corsOrigin: process.env.CORS_ORIGIN || "*",
-  corsOrigins: process.env.CORS_ORIGINS || "http://localhost:3000,http://localhost:3001",
+  corsOrigins:
+    process.env.CORS_ORIGINS || "http://localhost:3000,http://localhost:3001",
   rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW || "900000", 10),
   rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX || "200", 10),
   // Cookie configuration

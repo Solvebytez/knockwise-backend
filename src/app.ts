@@ -62,11 +62,13 @@ const moderateLimiter = createRateLimiter(15 * 60 * 1000, 200); // 200 requests 
 const lenientLimiter = createRateLimiter(15 * 60 * 1000, 500); // 500 requests per 15 minutes
 
 const corsOptions = {
-  origin: env.corsOrigins.split(','),
+  origin: env.corsOrigins.split(","),
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
 };
+
+console.log("🔗 CORS Origins:", env.corsOrigins.split(","));
 
 // Middleware
 app.use(helmet());
