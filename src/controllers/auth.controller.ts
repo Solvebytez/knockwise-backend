@@ -131,7 +131,7 @@ export async function login(req: Request, res: Response): Promise<void> {
       secure: isProduction, // HTTPS in prod, HTTP locally
       sameSite: (isProduction ? "none" : "lax") as "strict" | "lax" | "none",
       path: "/", // important so Next.js can see them
-      // No domain restriction - let browser handle cross-domain cookies
+      domain: isProduction ? ".vercel.app" : undefined, // Allow cookies on Vercel subdomains
     };
 
     // 7. Set cookies
