@@ -127,9 +127,9 @@ export async function login(req: Request, res: Response): Promise<void> {
     console.log("🌍 isProduction:", isProduction);
 
     const cookieOptions = {
-      httpOnly: true, // Secure cookies for same-origin requests
+      httpOnly: true, // Secure cookies
       secure: isProduction, // HTTPS in prod, HTTP locally
-      sameSite: (isProduction ? "lax" : "lax") as "strict" | "lax" | "none", // lax for same-origin
+      sameSite: (isProduction ? "none" : "lax") as "strict" | "lax" | "none", // none for cross-domain via proxy
       path: "/", // important so Next.js can see them
     };
 
