@@ -13,7 +13,8 @@ export const env = {
   bcryptSaltRounds: parseInt(process.env.BCRYPT_SALT_ROUNDS || "10", 10),
   corsOrigin: process.env.CORS_ORIGIN || "*",
   corsOrigins:
-    process.env.CORS_ORIGINS || "http://localhost:3000,http://localhost:3001,https://knockwise-client.vercel.app",
+    process.env.CORS_ORIGINS ||
+    "http://localhost:3000,http://localhost:3001,https://knockwise-client.vercel.app",
   rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW || "900000", 10),
   rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX || "200", 10),
   // Cookie configuration
@@ -22,7 +23,7 @@ export const env = {
   cookieHttpOnly: true,
   cookieSameSite:
     process.env.NODE_ENV === "production"
-      ? "strict"
+      ? "none"
       : ("lax" as "strict" | "lax" | "none"),
   cookieMaxAge: parseInt(process.env.COOKIE_MAX_AGE || "2592000000", 10), // 30 days in milliseconds
   // Email configuration
