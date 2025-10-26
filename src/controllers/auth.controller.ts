@@ -127,9 +127,9 @@ export async function login(req: Request, res: Response): Promise<void> {
     console.log("🌍 isProduction:", isProduction);
 
     const cookieOptions = {
-      httpOnly: env.cookieHttpOnly,
-      secure: env.cookieSecure,
-      sameSite: env.cookieSameSite,
+      httpOnly: true,
+      secure: false, // Set to false for Next.js proxy
+      sameSite: "lax", // Use lax for same-origin via proxy
       path: "/", // important so Next.js can see them
     };
 
