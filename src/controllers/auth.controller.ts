@@ -131,6 +131,7 @@ export async function login(req: Request, res: Response): Promise<void> {
       secure: false, // Set to false for Next.js proxy
       sameSite: "lax" as "lax", // Use lax for same-origin via proxy
       path: "/", // important so Next.js can see them
+      domain: undefined, // Don't set domain for Next.js proxy
     };
 
     // 7. Set cookies
