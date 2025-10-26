@@ -129,7 +129,7 @@ export async function login(req: Request, res: Response): Promise<void> {
     const cookieOptions = {
       httpOnly: true,
       secure: isProduction, // HTTPS in prod, HTTP locally
-      sameSite: (isProduction ? "none" : "lax") as "strict" | "lax" | "none",
+      sameSite: "lax" as "strict" | "lax" | "none", // Use 'lax' for both prod and dev
       path: "/", // important so Next.js can see them
     };
 
