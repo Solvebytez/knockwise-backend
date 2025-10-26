@@ -131,12 +131,14 @@ export async function login(req: Request, res: Response): Promise<void> {
       secure: isProduction, // HTTPS in prod, HTTP locally
       sameSite: (isProduction ? "none" : "lax") as "strict" | "lax" | "none",
       path: "/", // important so Next.js can see them
+      // No domain restriction - let browser handle cross-domain cookies
     };
 
     // 7. Set cookies
     console.log("🍪 Setting cookies with options:", cookieOptions);
     console.log("🍪 Request origin:", req.headers.origin);
     console.log("🍪 Request host:", req.headers.host);
+    console.log("🍪 Request cookies:", req.headers.cookie);
 
     res.cookie("accessToken", accessToken, {
       ...cookieOptions,
