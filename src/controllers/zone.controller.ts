@@ -4319,6 +4319,275 @@ export const updateZoneUnified = async (req: AuthRequest, res: Response) => {
 };
 
 // Update zone residents data
+// Assign zone location (handles both coordinate updates and community assignment)
+export const assignZoneLocation = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id: zoneId } = req.params;
+    const { latitude, longitude, address, communityId } = req.body;
+
+    console.log("\n🔄 ===== ASSIGN ZONE LOCATION STARTED =====");
+    console.log(`Zone ID: ${zoneId}`);
+    console.log(`Request Body:`, { latitude, longitude, address, communityId });
+    console.log(`User ID: ${req.user?.id}`);
+
+    const zone = await Zone.findById(zoneId);
+    if (!zone) {
+      console.log("❌ Zone not found");
+      return res.status(404).json({
+        success: false,
+        message: "Zone not found",
+      });
+    }
+
+    console.log("📋 Current Zone State:");
+    console.log(`  Current Community ID: ${zone.communityId || "None"}`);
+    console.log(`  Current Municipality ID: ${zone.municipalityId || "None"}`);
+    console.log(`  Current Area ID: ${zone.areaId || "None"}`);
+
+    // Check permissions
+    if (
+      req.user?.role !== "SUPERADMIN" &&
+      zone.createdBy?.toString() !== req.user?.id
+    ) {
+      console.log("❌ Access denied to update zone location");
+      return res.status(403).json({
+        success: false,
+        message: "Access denied to update this zone location",
+      });
+    }
+
+    console.log("✅ Access granted to update zone location");
+
+    // Handle community assignment
+    if (communityId) {
+      console.log("🏘️ Processing community assignment...");
+
+      // Validate community exists
+      const { Community } = require("../models/Community");
+      const community = await Community.findById(communityId);
+      if (!community) {
+        console.log("❌ Community not found");
+        return res.status(404).json({
+          success: false,
+          message: "Community not found",
+        });
+      }
+
+      console.log(`✅ Community found: ${community.name}`);
+      console.log(`  Community Municipality ID: ${community.municipalityId}`);
+      console.log(`  Community Area ID: ${community.areaId}`);
+
+      // Get municipality and area details for validation
+      const { Municipality } = require("../models/Municipality");
+      const { Area } = require("../models/Area");
+
+      const municipality = await Municipality.findById(
+        community.municipalityId
+      );
+      const area = await Area.findById(community.areaId);
+
+      if (!municipality) {
+        console.log("❌ Municipality not found for community");
+        return res.status(404).json({
+          success: false,
+          message: "Municipality not found for the selected community",
+        });
+      }
+
+      if (!area) {
+        console.log("❌ Area not found for community");
+        return res.status(404).json({
+          success: false,
+          message: "Area not found for the selected community",
+        });
+      }
+
+      console.log(`✅ Location hierarchy validated:`);
+      console.log(`  Area: ${area.name}`);
+      console.log(`  Municipality: ${municipality.name}`);
+      console.log(`  Community: ${community.name}`);
+
+      // Remove zone from previous community if it was assigned
+      if (zone.communityId && zone.communityId.toString() !== communityId) {
+        console.log("🔄 Removing zone from previous community...");
+        await Community.findByIdAndUpdate(zone.communityId, {
+          $pull: { zoneIds: zone._id },
+        });
+        console.log(
+          `✅ Removed zone from previous community: ${zone.communityId}`
+        );
+      }
+
+      // Update zone's location hierarchy
+      zone.communityId = community._id;
+      zone.municipalityId = community.municipalityId;
+      zone.areaId = community.areaId;
+
+      console.log("🔄 Updated zone location hierarchy:");
+      console.log(`  New Community ID: ${zone.communityId}`);
+      console.log(`  New Municipality ID: ${zone.municipalityId}`);
+      console.log(`  New Area ID: ${zone.areaId}`);
+
+      // Add zone to new community's zoneIds array
+      await Community.findByIdAndUpdate(communityId, {
+        $addToSet: { zoneIds: zone._id },
+      });
+      console.log(`✅ Added zone to community's zoneIds array`);
+
+      await zone.save();
+      console.log("✅ Zone location hierarchy updated successfully");
+
+      res.json({
+        success: true,
+        message: "Zone community assignment updated successfully",
+        data: {
+          zone: {
+            _id: zone._id,
+            name: zone.name,
+            communityId: zone.communityId,
+            municipalityId: zone.municipalityId,
+            areaId: zone.areaId,
+          },
+          location: {
+            area: { id: area._id, name: area.name },
+            municipality: { id: municipality._id, name: municipality.name },
+            community: { id: community._id, name: community.name },
+          },
+        },
+      });
+    }
+    // Handle coordinate updates (legacy functionality)
+    else if (latitude && longitude) {
+      console.log("📍 Processing coordinate update...");
+
+      // Update the boundary coordinates
+      zone.boundary = {
+        type: "Polygon",
+        coordinates: [
+          [
+            [longitude, latitude],
+            [longitude, latitude],
+            [longitude, latitude],
+            [longitude, latitude],
+          ],
+        ],
+      };
+
+      await zone.save();
+      console.log("✅ Zone coordinates updated successfully");
+
+      res.json({
+        success: true,
+        message: "Zone coordinates updated successfully",
+        data: zone,
+      });
+    } else {
+      console.log("❌ Invalid request: missing communityId or coordinates");
+      return res.status(400).json({
+        success: false,
+        message:
+          "Either communityId or coordinates (latitude, longitude) must be provided",
+      });
+    }
+  } catch (error) {
+    console.error("❌ Error assigning zone location:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to assign zone location",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+// Get zone location (includes community assignment data)
+export const getZoneLocation = async (req: AuthRequest, res: Response) => {
+  try {
+    const { id: zoneId } = req.params;
+
+    console.log("\n🔄 ===== GET ZONE LOCATION STARTED =====");
+    console.log(`Zone ID: ${zoneId}`);
+    console.log(`User ID: ${req.user?.id}`);
+
+    const zone = await Zone.findById(zoneId)
+      .populate("areaId", "name type")
+      .populate("municipalityId", "name type")
+      .populate("communityId", "name type")
+      .select("boundary name areaId municipalityId communityId");
+
+    if (!zone) {
+      console.log("❌ Zone not found");
+      return res.status(404).json({
+        success: false,
+        message: "Zone not found",
+      });
+    }
+
+    console.log("📋 Zone location data:");
+    console.log(`  Zone Name: ${zone.name}`);
+    console.log(`  Area: ${zone.areaId ? (zone.areaId as any).name : "None"}`);
+    console.log(
+      `  Municipality: ${
+        zone.municipalityId ? (zone.municipalityId as any).name : "None"
+      }`
+    );
+    console.log(
+      `  Community: ${
+        zone.communityId ? (zone.communityId as any).name : "None"
+      }`
+    );
+
+    // Extract center coordinates from boundary
+    const coordinates = zone.boundary?.coordinates?.[0]?.[0] || [0, 0];
+
+    const responseData = {
+      zone: {
+        id: zone._id,
+        name: zone.name,
+      },
+      coordinates: {
+        latitude: coordinates[1],
+        longitude: coordinates[0],
+      },
+      // Include location hierarchy data in the format expected by frontend
+      area: zone.areaId
+        ? {
+            id: (zone.areaId as any)._id,
+            name: (zone.areaId as any).name,
+            type: (zone.areaId as any).type,
+          }
+        : null,
+      municipality: zone.municipalityId
+        ? {
+            id: (zone.municipalityId as any)._id,
+            name: (zone.municipalityId as any).name,
+            type: (zone.municipalityId as any).type,
+          }
+        : null,
+      community: zone.communityId
+        ? {
+            id: (zone.communityId as any)._id,
+            name: (zone.communityId as any).name,
+            type: (zone.communityId as any).type,
+          }
+        : null,
+    };
+
+    console.log("✅ Zone location data prepared:", responseData);
+
+    res.json({
+      success: true,
+      data: responseData,
+    });
+  } catch (error) {
+    console.error("❌ Error getting zone location:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to get zone location",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
 export const updateZoneResidents = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;

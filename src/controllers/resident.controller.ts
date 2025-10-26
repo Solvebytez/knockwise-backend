@@ -1,4 +1,5 @@
 import { Request, Response } from "express";
+import mongoose from "mongoose";
 import { AuthRequest } from "../middleware/auth";
 import { Resident } from "../models/Resident";
 import { PropertyData } from "../models/PropertyData";
@@ -6,6 +7,159 @@ import { Zone } from "../models/Zone";
 import { AgentZoneAssignment } from "../models/AgentZoneAssignment";
 import { User, IUser } from "../models/User";
 const { ScheduledAssignment } = require("../models/ScheduledAssignment");
+
+// Helper function to check if point is inside polygon
+const isPointInPolygon = (
+  point: [number, number],
+  polygon: [number, number][]
+): boolean => {
+  const [lng, lat] = point;
+  let inside = false;
+
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const [lng1, lat1] = polygon[i] as [number, number];
+    const [lng2, lat2] = polygon[j] as [number, number];
+
+    const intersect =
+      lat1 > lat !== lat2 > lat &&
+      lng < ((lng2 - lng1) * (lat - lat1)) / (lat2 - lat1) + lng1;
+
+    if (intersect) inside = !inside;
+  }
+
+  return inside;
+};
+
+export const createResident = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const createData = req.body;
+    const currentUser = req.user;
+    const currentUserId = currentUser?.sub || currentUser?.id;
+
+    console.log("🏗️ Create Resident Request:", {
+      createData,
+      currentUserId: currentUserId,
+      currentUserRole: currentUser?.role,
+    });
+
+    // 1. Validate zone exists
+    const zone = await Zone.findById(createData.zoneId);
+    if (!zone) {
+      res.status(404).json({
+        success: false,
+        message: "Zone not found",
+      });
+      return;
+    }
+
+    // 2. Check if user has permission to add residents to this zone
+    const hasPermission = await checkEditPermission(currentUser, zone);
+    if (!hasPermission) {
+      res.status(403).json({
+        success: false,
+        message: "You do not have permission to add residents to this zone",
+      });
+      return;
+    }
+
+    // 2a. Validate required fields - only house number is mandatory
+    // Note: Other fields like address, coordinates, lastVisited are optional
+
+    // 3. Validate coordinates are inside zone boundary (only if coordinates provided)
+    if (
+      createData.coordinates &&
+      zone.boundary &&
+      zone.boundary.type === "Polygon"
+    ) {
+      const coordinates = createData.coordinates;
+      const isInside = isPointInPolygon(
+        coordinates,
+        zone.boundary.coordinates[0] as [number, number][]
+      );
+
+      if (!isInside) {
+        res.status(400).json({
+          success: false,
+          message: "Coordinates must be inside the zone boundary",
+        });
+        return;
+      }
+    }
+
+    // 4. Check for duplicates (same coordinates OR same address+houseNumber combination)
+    console.log("🔍 Checking for duplicates:", {
+      zoneId: createData.zoneId,
+      address: createData.address,
+      houseNumber: createData.houseNumber,
+      coordinates: createData.coordinates,
+    });
+
+    // 5. Create the new resident
+    const newResident = new Resident({
+      ...createData,
+      dataSource: "MANUAL", // Manually added by agent
+      lastUpdatedBy: currentUserId,
+      assignedAgentId: createData.assignedAgentId || currentUserId, // Assign to current agent if not specified
+    });
+
+    await newResident.save();
+
+    // Populate the response
+    const populatedResident = await Resident.findById(newResident._id)
+      .populate("assignedAgentId", "name email")
+      .populate("lastUpdatedBy", "name email role")
+      .populate("zoneId", "name")
+      .populate("propertyDataId");
+
+    console.log("✅ Resident created successfully:", {
+      residentId: populatedResident?._id,
+      createdBy: currentUserId,
+      dataSource: "MANUAL",
+    });
+
+    // 6. Update Zone houseStatuses
+    if (zone.buildingData) {
+      try {
+        const houseStatuses = zone.buildingData.houseStatuses || {};
+        const houseStatus: any = {
+          status: createData.status || "not-visited",
+          lastVisited: createData.lastVisited || new Date(),
+          updatedAt: new Date(),
+        };
+
+        if (currentUserId) {
+          houseStatus.updatedBy = new mongoose.Types.ObjectId(currentUserId);
+        }
+
+        houseStatuses[createData.address] = houseStatus;
+
+        await Zone.findByIdAndUpdate(createData.zoneId, {
+          "buildingData.houseStatuses": houseStatuses,
+        });
+
+        console.log("✅ Zone houseStatuses updated after manual addition");
+      } catch (zoneUpdateError) {
+        console.error("⚠️ Error updating zone houseStatuses:", zoneUpdateError);
+      }
+    }
+
+    res.status(201).json({
+      success: true,
+      message: "Resident added successfully",
+      data: populatedResident,
+    });
+  } catch (error) {
+    console.error("❌ Error creating resident:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
 
 export const getResidentById = async (
   req: AuthRequest,
@@ -328,11 +482,31 @@ export const updateResident = async (req: AuthRequest, res: Response) => {
     }
 
     // 3. Business Logic Validation
-    const validationError = validateResidentUpdate(updateData);
+    // Pass the current resident to check if status is being CHANGED
+    const validationError = validateResidentUpdate(updateData, resident);
     if (validationError) {
       return res.status(400).json({
         success: false,
         message: validationError,
+      });
+    }
+
+    // 3a. Check for duplicates if key fields are being updated
+    if (
+      updateData.coordinates ||
+      updateData.address ||
+      updateData.houseNumber
+    ) {
+      const checkAddress = updateData.address || resident.address;
+      const checkHouseNumber = updateData.houseNumber || resident.houseNumber;
+      const checkCoordinates = updateData.coordinates || resident.coordinates;
+
+      console.log("🔍 Update: Checking for duplicates:", {
+        zoneId: resident.zoneId,
+        address: checkAddress,
+        houseNumber: checkHouseNumber,
+        coordinates: checkCoordinates,
+        excludingId: id,
       });
     }
 
@@ -395,13 +569,18 @@ export const updateResident = async (req: AuthRequest, res: Response) => {
           // Update the house status in the zone's buildingData
           const houseKey = updatedResident.address;
           const houseStatuses = zoneToUpdate.buildingData.houseStatuses || {};
-          
-          houseStatuses[houseKey] = {
+
+          const houseStatus: any = {
             status: updateData.status,
             lastVisited: updateData.lastVisited || new Date(),
             updatedAt: new Date(),
-            updatedBy: currentUserId,
           };
+
+          if (currentUserId) {
+            houseStatus.updatedBy = new mongoose.Types.ObjectId(currentUserId);
+          }
+
+          houseStatuses[houseKey] = houseStatus;
 
           // Save the updated zone
           await Zone.findByIdAndUpdate(resident.zoneId, {
@@ -493,9 +672,25 @@ const checkEditPermission = async (
 };
 
 // Helper function to validate resident update
-const validateResidentUpdate = (updateData: any): string | null => {
-  // Check if status is being set to 'not-visited' but other info exists
-  if (updateData.status === "not-visited") {
+const validateResidentUpdate = (
+  updateData: any,
+  currentResident: any
+): string | null => {
+  // Require lastVisited field ONLY if status is not "not-visited"
+  // If status is "not-visited", user hasn't visited yet, so lastVisited is not required
+  if (updateData.status && updateData.status !== "not-visited") {
+    if (!updateData.lastVisited) {
+      return "Last Visited date is required when status is not 'Not Visited'";
+    }
+  }
+
+  // Check if status is being CHANGED TO 'not-visited' (not already "not-visited")
+  const isChangingToNotVisited =
+    updateData.status === "not-visited" &&
+    currentResident.status !== "not-visited";
+
+  // Only validate if user is CHANGING status TO "not-visited"
+  if (isChangingToNotVisited) {
     const hasInfo =
       updateData.phone ||
       updateData.email ||
@@ -507,9 +702,12 @@ const validateResidentUpdate = (updateData: any): string | null => {
       updateData.ownerMailingAddress;
 
     if (hasInfo) {
-      return 'Cannot set status to "Not Visited" when resident information is present. Please select a different status.';
+      return 'Cannot change status to "Not Visited" when adding contact information. Please select a different status.';
     }
   }
+
+  // If status IS ALREADY "not-visited" → Allow basic info updates (address, coordinates)
+  // If status is "visited/interested/etc" → Allow all info updates
 
   return null;
 };

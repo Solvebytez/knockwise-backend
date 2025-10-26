@@ -22,6 +22,8 @@ import {
   getZoneBuildingStats,
   getAllZonesBuildingStats,
   getTerritoryMapView,
+  assignZoneLocation,
+  getZoneLocation,
 } from "../controllers/zone.controller";
 import { validate } from "../utils/validator";
 import {
@@ -1882,5 +1884,114 @@ router.get(
  *                                 example: 122
  */
 router.get("/building-stats/all", getAllZonesBuildingStats);
+
+/**
+ * @openapi
+ * /api/zones/{id}/location:
+ *   put:
+ *     summary: Assign location hierarchy to a zone
+ *     tags: [Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: "68f248b6f061ee5b03d474a7"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               areaId:
+ *                 type: string
+ *                 example: "68f248b6f061ee5b03d474a7"
+ *               municipalityId:
+ *                 type: string
+ *                 example: "68f248b6f061ee5b03d474a9"
+ *               communityId:
+ *                 type: string
+ *                 example: "68f248b6f061ee5b03d474ab"
+ *     responses:
+ *       200:
+ *         description: Zone location assigned successfully
+ *       400:
+ *         description: Invalid location hierarchy
+ *       404:
+ *         description: Zone or location not found
+ */
+router.put("/:id/location", assignZoneLocation);
+
+/**
+ * @openapi
+ * /api/zones/{id}/location:
+ *   get:
+ *     summary: Get zone location hierarchy
+ *     tags: [Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: "68f248b6f061ee5b03d474a7"
+ *     responses:
+ *       200:
+ *         description: Zone location retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     zone:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                     area:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                         type:
+ *                           type: string
+ *                     municipality:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                         type:
+ *                           type: string
+ *                     community:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                         type:
+ *                           type: string
+ *       404:
+ *         description: Zone not found
+ */
+router.get("/:id/location", getZoneLocation);
 
 export default router;

@@ -8,7 +8,10 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "seed": "ts-node -r dotenv/config src/scripts/seed.ts",
-    "seed-property-data": "ts-node -r dotenv/config src/scripts/seed-property-data.ts"
+    "seed-property-data": "ts-node -r dotenv/config src/scripts/seed-property-data.ts",
+    "seed-location-data": "ts-node -r dotenv/config src/scripts/seed-location-data.ts",
+    "seed-additional-users": "ts-node -r dotenv/config src/scripts/seed-additional-users.ts",
+    "optimize-db": "ts-node -r dotenv/config src/scripts/optimize-database-indexes.ts"
   },
   "keywords": [],
   "author": "",

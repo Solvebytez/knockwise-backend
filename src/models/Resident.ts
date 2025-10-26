@@ -9,6 +9,8 @@ export type ResidentStatus =
   | "follow-up"
   | "not-interested";
 
+export type ResidentDataSource = "AUTO" | "MANUAL";
+
 export interface IResident extends Document {
   zoneId: mongoose.Types.ObjectId;
   address: string;
@@ -21,6 +23,7 @@ export interface IResident extends Document {
   lastVisited?: Date;
   assignedAgentId?: mongoose.Types.ObjectId;
   lastUpdatedBy?: mongoose.Types.ObjectId; // Track which user last updated this resident
+  dataSource: ResidentDataSource; // Track if auto-detected or manually added
   propertyDataId?: mongoose.Types.ObjectId | null; // Link to detailed property info
   createdAt: Date;
   updatedAt: Date;
@@ -57,6 +60,12 @@ const ResidentSchema = new Schema<IResident>(
     lastVisited: { type: Date },
     assignedAgentId: { type: Schema.Types.ObjectId, ref: "User", index: true },
     lastUpdatedBy: { type: Schema.Types.ObjectId, ref: "User", index: true },
+    dataSource: {
+      type: String,
+      enum: ["AUTO", "MANUAL"],
+      default: "AUTO",
+      index: true,
+    },
     propertyDataId: {
       type: Schema.Types.ObjectId,
       ref: "PropertyData",

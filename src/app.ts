@@ -24,6 +24,12 @@ import zoneRoutes from "./routes/zone.routes";
 import activityRoutes from "./routes/activity.routes";
 import teamRoutes from "./routes/team.routes";
 import addressValidationRoutes from "./routes/address-validation.routes";
+// Location hierarchy routes
+import areaRoutes from "./routes/area.routes";
+import municipalityRoutes from "./routes/municipality.routes";
+import communityRoutes from "./routes/community.routes";
+// Agent zone routes
+import agentZoneRoutes from "./routes/agentZone.routes";
 
 const app = express();
 
@@ -112,6 +118,12 @@ app.use("/api/zones", zoneRoutes);
 app.use("/api/activities", activityRoutes);
 app.use("/api/teams", teamRoutes);
 app.use("/api/address-validation", addressValidationRoutes);
+// Location hierarchy routes
+app.use("/api/areas", areaRoutes);
+app.use("/api/municipalities", municipalityRoutes);
+app.use("/api/communities", communityRoutes);
+// Agent zone routes
+app.use("/api/agent-zones", agentZoneRoutes);
 
 // Swagger Documentation
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));

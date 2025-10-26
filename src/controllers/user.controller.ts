@@ -10,6 +10,225 @@ import { AuthRequest } from "../middleware/auth";
 import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
 
+// OPTIMIZED: Single aggregation query to calculate agent statuses
+const calculateAgentStatusesOptimized = async (
+  agentIds: string[]
+): Promise<Map<string, "ACTIVE" | "INACTIVE">> => {
+  try {
+    const statusMap = new Map<string, "ACTIVE" | "INACTIVE">();
+
+    // Single aggregation pipeline to get all agent status information
+    const agentStatusData = await User.aggregate([
+      {
+        $match: {
+          _id: { $in: agentIds.map((id) => new mongoose.Types.ObjectId(id)) },
+          role: "AGENT",
+        },
+      },
+      {
+        $lookup: {
+          from: "agentzoneassignments",
+          let: { agentId: "$_id", teamIds: "$teamIds" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $or: [
+                    { $eq: ["$agentId", "$$agentId"] },
+                    { $in: ["$teamId", "$$teamIds"] },
+                  ],
+                },
+                status: { $nin: ["COMPLETED", "CANCELLED"] },
+                effectiveTo: null,
+              },
+            },
+          ],
+          as: "zoneAssignments",
+        },
+      },
+      {
+        $lookup: {
+          from: "scheduledassignments",
+          let: { agentId: "$_id", teamIds: "$teamIds" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $or: [
+                    { $eq: ["$agentId", "$$agentId"] },
+                    { $in: ["$teamId", "$$teamIds"] },
+                  ],
+                },
+                status: "PENDING",
+              },
+            },
+          ],
+          as: "scheduledAssignments",
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          status: 1,
+          zoneIds: 1,
+          primaryZoneId: 1,
+          hasZoneAssignments: { $gt: [{ $size: "$zoneAssignments" }, 0] },
+          hasScheduledAssignments: {
+            $gt: [{ $size: "$scheduledAssignments" }, 0],
+          },
+          hasIndividualZoneIds: {
+            $gt: [{ $size: { $ifNull: ["$zoneIds", []] } }, 0],
+          },
+          hasPrimaryZone: { $ne: ["$primaryZoneId", null] },
+        },
+      },
+    ]);
+
+    // Process results and determine status
+    for (const agent of agentStatusData) {
+      const shouldBeActive =
+        agent.hasIndividualZoneIds ||
+        agent.hasPrimaryZone ||
+        agent.hasZoneAssignments ||
+        agent.hasScheduledAssignments ||
+        agent.status === "ACTIVE";
+
+      statusMap.set(
+        agent._id.toString(),
+        shouldBeActive ? "ACTIVE" : "INACTIVE"
+      );
+    }
+
+    // Set default INACTIVE for any agents not found in aggregation
+    for (const agentId of agentIds) {
+      if (!statusMap.has(agentId)) {
+        statusMap.set(agentId, "INACTIVE");
+      }
+    }
+
+    return statusMap;
+  } catch (error) {
+    console.error("Error calculating agent statuses:", error);
+    // Return default INACTIVE status for all agents on error
+    const statusMap = new Map<string, "ACTIVE" | "INACTIVE">();
+    for (const agentId of agentIds) {
+      statusMap.set(agentId, "INACTIVE");
+    }
+    return statusMap;
+  }
+};
+
+// OPTIMIZED: Single aggregation query to get assignment statuses
+const calculateAssignmentStatusesOptimized = async (
+  agentIds: string[]
+): Promise<
+  Map<string, { assigned: boolean; hasIndividual: boolean; hasTeam: boolean }>
+> => {
+  try {
+    const assignmentMap = new Map<
+      string,
+      { assigned: boolean; hasIndividual: boolean; hasTeam: boolean }
+    >();
+
+    const assignmentData = await User.aggregate([
+      {
+        $match: {
+          _id: { $in: agentIds.map((id) => new mongoose.Types.ObjectId(id)) },
+          role: "AGENT",
+        },
+      },
+      {
+        $lookup: {
+          from: "agentzoneassignments",
+          let: { agentId: "$_id", teamIds: "$teamIds" },
+          pipeline: [
+            {
+              $match: {
+                $expr: {
+                  $or: [
+                    { $eq: ["$agentId", "$$agentId"] },
+                    { $in: ["$teamId", "$$teamIds"] },
+                  ],
+                },
+                status: { $nin: ["COMPLETED", "CANCELLED"] },
+                effectiveTo: null,
+              },
+            },
+          ],
+          as: "assignments",
+        },
+      },
+      {
+        $project: {
+          _id: 1,
+          hasIndividual: {
+            $gt: [
+              {
+                $size: {
+                  $filter: {
+                    input: "$assignments",
+                    cond: { $eq: ["$$this.agentId", "$_id"] },
+                  },
+                },
+              },
+              0,
+            ],
+          },
+          hasTeam: {
+            $gt: [
+              {
+                $size: {
+                  $filter: {
+                    input: "$assignments",
+                    cond: { $ne: ["$$this.agentId", "$_id"] },
+                  },
+                },
+              },
+              0,
+            ],
+          },
+        },
+      },
+    ]);
+
+    for (const agent of assignmentData) {
+      const assigned = agent.hasIndividual || agent.hasTeam;
+      assignmentMap.set(agent._id.toString(), {
+        assigned,
+        hasIndividual: agent.hasIndividual,
+        hasTeam: agent.hasTeam,
+      });
+    }
+
+    // Set default values for agents not found
+    for (const agentId of agentIds) {
+      if (!assignmentMap.has(agentId)) {
+        assignmentMap.set(agentId, {
+          assigned: false,
+          hasIndividual: false,
+          hasTeam: false,
+        });
+      }
+    }
+
+    return assignmentMap;
+  } catch (error) {
+    console.error("Error calculating assignment statuses:", error);
+    const assignmentMap = new Map<
+      string,
+      { assigned: boolean; hasIndividual: boolean; hasTeam: boolean }
+    >();
+    for (const agentId of agentIds) {
+      assignmentMap.set(agentId, {
+        assigned: false,
+        hasIndividual: false,
+        hasTeam: false,
+      });
+    }
+    return assignmentMap;
+  }
+};
+
 // Helper function to calculate team status based on zone assignments
 const calculateTeamStatus = async (
   teamId: string
@@ -759,8 +978,8 @@ export const getMyProfile = async (req: AuthRequest, res: Response) => {
   try {
     const user = await User.findById(req.user?.sub)
       .select("-password")
-      .populate("teamId", "name")
-      .populate("zoneId", "name");
+      .populate("primaryTeamId", "name")
+      .populate("primaryZoneId", "name");
 
     if (!user) {
       return res.status(404).json({
@@ -771,7 +990,9 @@ export const getMyProfile = async (req: AuthRequest, res: Response) => {
 
     res.json({
       success: true,
-      data: user,
+      data: {
+        user: user,
+      },
     });
   } catch (error) {
     console.error("Error getting profile:", error);
@@ -898,7 +1119,25 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
       agentId: agent._id,
       status: { $nin: ["COMPLETED", "CANCELLED"] },
       effectiveTo: null,
-    }).populate("zoneId");
+    }).populate({
+      path: "zoneId",
+      select:
+        "name description status createdBy areaId municipalityId communityId",
+      populate: [
+        {
+          path: "areaId",
+          select: "name type",
+        },
+        {
+          path: "municipalityId",
+          select: "name type",
+        },
+        {
+          path: "communityId",
+          select: "name type",
+        },
+      ],
+    });
     console.log(
       `📋 getMyTerritories: Found ${individualZoneAssignments.length} individual assignments`
     );
@@ -910,7 +1149,25 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
       status: { $nin: ["COMPLETED", "CANCELLED"] },
       effectiveTo: null,
     })
-      .populate("zoneId")
+      .populate({
+        path: "zoneId",
+        select:
+          "name description status createdBy areaId municipalityId communityId",
+        populate: [
+          {
+            path: "areaId",
+            select: "name type",
+          },
+          {
+            path: "municipalityId",
+            select: "name type",
+          },
+          {
+            path: "communityId",
+            select: "name type",
+          },
+        ],
+      })
       .populate("teamId", "name");
     console.log(
       `📋 getMyTerritories: Found ${teamZoneAssignments.length} team assignments`
@@ -924,7 +1181,25 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
       await ScheduledAssignment.find({
         agentId: agent._id,
         status: "PENDING",
-      }).populate("zoneId");
+      }).populate({
+        path: "zoneId",
+        select:
+          "name description status createdBy areaId municipalityId communityId",
+        populate: [
+          {
+            path: "areaId",
+            select: "name type",
+          },
+          {
+            path: "municipalityId",
+            select: "name type",
+          },
+          {
+            path: "communityId",
+            select: "name type",
+          },
+        ],
+      });
     console.log(
       `📋 getMyTerritories: Found ${pendingIndividualScheduledAssignments.length} scheduled individual assignments`
     );
@@ -935,7 +1210,25 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
       teamId: { $in: agent.teamIds },
       status: "PENDING",
     })
-      .populate("zoneId")
+      .populate({
+        path: "zoneId",
+        select:
+          "name description status createdBy areaId municipalityId communityId",
+        populate: [
+          {
+            path: "areaId",
+            select: "name type",
+          },
+          {
+            path: "municipalityId",
+            select: "name type",
+          },
+          {
+            path: "communityId",
+            select: "name type",
+          },
+        ],
+      })
       .populate("teamId", "name");
     console.log(
       `📋 getMyTerritories: Found ${pendingTeamScheduledAssignments.length} scheduled team assignments`
@@ -1039,6 +1332,7 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
           name: zone.name,
           description: zone.description,
           status: zone.status,
+          createdBy: zone.createdBy, // Add createdBy field for ownership check
           assignmentType: item.assignmentType,
           isScheduled: item.isScheduled,
           isPrimary: isPrimary,
@@ -1079,6 +1373,10 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
               ? Math.round((visitedCount / totalHouses) * 100)
               : 0,
           averageKnocks: zone.averageKnocks || 0,
+          // Add location hierarchy fields
+          areaId: zone.areaId,
+          municipalityId: zone.municipalityId,
+          communityId: zone.communityId,
         };
       })
     );
@@ -1606,20 +1904,21 @@ export const getTeamOverview = async (req: AuthRequest, res: Response) => {
     const agents = await User.find({
       role: "AGENT",
       createdBy: currentUserId,
-    });
+    }).select("_id name email status createdAt teamIds zoneIds primaryZoneId");
 
-    let totalAgents = agents.length;
+    const agentIds = agents.map((agent) => (agent._id as any).toString());
+    const totalAgents = agents.length;
+
+    // OPTIMIZED: Single aggregation query for all agent statuses
+    const agentStatusMap = await calculateAgentStatusesOptimized(agentIds);
+
+    // Count active/inactive agents
     let activeAgents = 0;
     let inactiveAgents = 0;
 
-    // Count agents based on status
-    for (const agent of agents) {
-      // Use the same calculateAgentStatus function that includes scheduled assignments
-      const calculatedStatus = await calculateAgentStatus(
-        (agent._id as any).toString()
-      );
-
-      if (calculatedStatus === "ACTIVE") {
+    for (const agentId of agentIds) {
+      const status = agentStatusMap.get(agentId);
+      if (status === "ACTIVE") {
         activeAgents++;
       } else {
         inactiveAgents++;
@@ -1637,50 +1936,34 @@ export const getTeamOverview = async (req: AuthRequest, res: Response) => {
       createdAt: { $gte: startOfMonth },
     });
 
-    // Get total zones count
+    // Get total zones count using role-based filtering (consistent with territory stats)
     const { Zone } = require("../models/Zone");
-    const totalZones = await Zone.countDocuments({
-      createdBy: currentUserId,
+    const { getRoleBasedFilters } = require("../utils/roleFiltering");
+
+    const { zoneFilter } = await getRoleBasedFilters({
+      userId: currentUserId,
+      userRole: req.user?.role || "",
+      primaryTeamId: req.user?.primaryTeamId,
     });
 
-    // Calculate assignment status based on actual zone assignments
+    const totalZones = await Zone.countDocuments(zoneFilter);
+
+    // OPTIMIZED: Single aggregation query for assignment statuses
+    const assignmentStatusMap = await calculateAssignmentStatusesOptimized(
+      agentIds
+    );
+
     let assignedAgentsCount = 0;
     let unassignedAgentsCount = 0;
+    let agentsWithIndividualAssignments = 0;
+    let agentsWithTeamAssignments = 0;
 
-    for (const agent of agents) {
-      // Check if agent has any zone assignments (individual or through team)
-      const { AgentZoneAssignment } = require("../models/AgentZoneAssignment");
-
-      // Check individual zone assignments
-      const individualAssignments = await AgentZoneAssignment.find({
-        agentId: agent._id,
-        status: "ACTIVE",
-      });
-
-      // Check team zone assignments in AgentZoneAssignment
-      const teamAssignments = await AgentZoneAssignment.find({
-        teamId: { $in: agent.teamIds || [] },
-        status: "ACTIVE",
-      });
-
-      // Check team zone assignments in Zone model (for zones assigned to teams)
-      const { Zone } = require("../models/Zone");
-      const teamZoneAssignments = await Zone.find({
-        teamId: { $in: agent.teamIds || [] },
-        status: { $in: ["ACTIVE", "SCHEDULED"] },
-      });
-
-      // Also check if agent has direct zoneIds (for backward compatibility)
-      const hasDirectZones = agent.zoneIds && agent.zoneIds.length > 0;
-
-      const hasZoneAssignment =
-        individualAssignments.length > 0 ||
-        teamAssignments.length > 0 ||
-        teamZoneAssignments.length > 0 ||
-        hasDirectZones;
-
-      if (hasZoneAssignment) {
+    for (const agentId of agentIds) {
+      const assignmentStatus = assignmentStatusMap.get(agentId);
+      if (assignmentStatus?.assigned) {
         assignedAgentsCount++;
+        if (assignmentStatus.hasIndividual) agentsWithIndividualAssignments++;
+        if (assignmentStatus.hasTeam) agentsWithTeamAssignments++;
       } else {
         unassignedAgentsCount++;
       }
@@ -1695,6 +1978,8 @@ export const getTeamOverview = async (req: AuthRequest, res: Response) => {
         agentsThisMonth,
         assignedAgents: assignedAgentsCount,
         unassignedAgents: unassignedAgentsCount,
+        agentsWithIndividualAssignments,
+        agentsWithTeamAssignments,
         totalZones,
       },
     });
