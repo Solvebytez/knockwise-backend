@@ -129,7 +129,7 @@ export async function login(req: Request, res: Response): Promise<void> {
     const cookieOptions = {
       httpOnly: true,
       secure: false, // Set to false for Next.js proxy
-      sameSite: "lax", // Use lax for same-origin via proxy
+      sameSite: "lax" as "lax", // Use lax for same-origin via proxy
       path: "/", // important so Next.js can see them
     };
 
