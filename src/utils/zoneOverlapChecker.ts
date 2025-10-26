@@ -1,9 +1,11 @@
-import { Zone } from '../models/Zone';
+import { Zone } from "../models/Zone";
 
 export interface OverlapResult {
   hasOverlap: boolean;
   overlappingZones: any[];
   overlapPercentage?: number;
+  totalOverlaps?: number;
+  authorizedOverlaps?: number;
 }
 
 /**
@@ -14,21 +16,22 @@ export interface OverlapResult {
  */
 export const checkZoneOverlap = async (
   boundary: any,
-  excludeZoneId?: string
+  excludeZoneId?: string,
+  currentUser?: any
 ): Promise<OverlapResult> => {
   try {
     // Ensure boundary is a valid GeoJSON polygon
-    if (!boundary || boundary.type !== 'Polygon' || !boundary.coordinates) {
-      throw new Error('Invalid boundary format. Expected GeoJSON Polygon.');
+    if (!boundary || boundary.type !== "Polygon" || !boundary.coordinates) {
+      throw new Error("Invalid boundary format. Expected GeoJSON Polygon.");
     }
 
     // Build query to find overlapping zones
     const query: any = {
       boundary: {
         $geoIntersects: {
-          $geometry: boundary
-        }
-      }
+          $geometry: boundary,
+        },
+      },
     };
 
     // Exclude the current zone if updating
@@ -36,19 +39,27 @@ export const checkZoneOverlap = async (
       query._id = { $ne: excludeZoneId };
     }
 
+    // For overlap checking, we check against ALL zones to prevent overlaps
+    // But we'll filter the response based on user authorization
+    const checkAllZones = true; // Always check all zones for overlap prevention
+
     // Find zones that intersect with the new boundary
-    const overlappingZones = await Zone.find(query).select('_id name status createdBy createdAt');
+    const overlappingZones = await Zone.find(query).select(
+      "_id name status createdBy createdAt"
+    );
 
     if (overlappingZones.length === 0) {
       return {
         hasOverlap: false,
-        overlappingZones: []
+        overlappingZones: [],
+        totalOverlaps: 0,
+        authorizedOverlaps: 0,
       };
     }
 
     // Calculate overlap percentage for the most significant overlap
     let maxOverlapPercentage = 0;
-    
+
     for (const existingZone of overlappingZones) {
       try {
         // Use MongoDB's $geoIntersects to check intersection
@@ -56,9 +67,9 @@ export const checkZoneOverlap = async (
           _id: existingZone._id,
           boundary: {
             $geoIntersects: {
-              $geometry: boundary
-            }
-          }
+              $geometry: boundary,
+            },
+          },
         };
 
         const intersectionResult = await Zone.findOne(intersectionQuery);
@@ -68,17 +79,30 @@ export const checkZoneOverlap = async (
           maxOverlapPercentage = Math.max(maxOverlapPercentage, 50); // Placeholder value
         }
       } catch (error) {
-        console.error('Error calculating overlap percentage:', error);
+        console.error("Error calculating overlap percentage:", error);
       }
     }
 
+    // Filter overlapping zones based on user authorization (for response only)
+    let authorizedOverlappingZones = overlappingZones;
+    if (currentUser && currentUser.role !== "SUPERADMIN") {
+      authorizedOverlappingZones = overlappingZones.filter(
+        (zone) =>
+          zone.createdBy?.toString() === currentUser.id ||
+          zone.teamId?.toString() === currentUser.primaryTeamId ||
+          zone.assignedAgentId?.toString() === currentUser.id
+      );
+    }
+
     return {
-      hasOverlap: true,
-      overlappingZones,
-      overlapPercentage: maxOverlapPercentage
+      hasOverlap: overlappingZones.length > 0, // Always return true if there's any overlap
+      overlappingZones: authorizedOverlappingZones, // But only show authorized zones in response
+      overlapPercentage: maxOverlapPercentage,
+      totalOverlaps: overlappingZones.length, // Include total count for debugging
+      authorizedOverlaps: authorizedOverlappingZones.length, // Include authorized count
     };
   } catch (error) {
-    console.error('Error checking zone overlap:', error);
+    console.error("Error checking zone overlap:", error);
     throw error;
   }
 };
@@ -94,8 +118,10 @@ export const checkDuplicateBuildings = async (
   excludeZoneId?: string
 ): Promise<string[]> => {
   try {
+    console.log("🔍 checkDuplicateBuildings: Checking addresses:", addresses);
+
     const query: any = {
-      address: { $in: addresses }
+      address: { $in: addresses },
     };
 
     if (excludeZoneId) {
@@ -105,37 +131,49 @@ export const checkDuplicateBuildings = async (
     const existingResidents = await Zone.aggregate([
       {
         $lookup: {
-          from: 'residents',
-          localField: '_id',
-          foreignField: 'zoneId',
-          as: 'residents'
-        }
+          from: "residents",
+          localField: "_id",
+          foreignField: "zoneId",
+          as: "residents",
+        },
       },
       {
-        $unwind: '$residents'
+        $unwind: "$residents",
       },
       {
         $match: {
-          'residents.address': { $in: addresses }
-        }
+          "residents.address": { $in: addresses },
+        },
       },
       {
         $project: {
-          'residents.address': 1,
-          'residents.zoneId': 1
-        }
-      }
+          "residents.address": 1,
+          "residents.zoneId": 1,
+          name: 1,
+        },
+      },
     ]);
+
+    console.log(
+      "🔍 checkDuplicateBuildings: Found existing residents:",
+      existingResidents
+    );
 
     const duplicateAddresses = existingResidents
       .map((item: any) => item.residents.address)
-      .filter((address: string, index: number, arr: string[]) => 
-        arr.indexOf(address) === index
+      .filter(
+        (address: string, index: number, arr: string[]) =>
+          arr.indexOf(address) === index
       );
+
+    console.log(
+      "🔍 checkDuplicateBuildings: Duplicate addresses found:",
+      duplicateAddresses
+    );
 
     return duplicateAddresses;
   } catch (error) {
-    console.error('Error checking duplicate buildings:', error);
+    console.error("Error checking duplicate buildings:", error);
     throw error;
   }
 };
@@ -147,22 +185,26 @@ export const checkDuplicateBuildings = async (
  */
 export const validateZoneBoundary = (boundary: any): boolean => {
   try {
-    if (!boundary || typeof boundary !== 'object') {
+    if (!boundary || typeof boundary !== "object") {
       return false;
     }
 
-    if (boundary.type !== 'Polygon') {
+    if (boundary.type !== "Polygon") {
       return false;
     }
 
-    if (!Array.isArray(boundary.coordinates) || boundary.coordinates.length === 0) {
+    if (
+      !Array.isArray(boundary.coordinates) ||
+      boundary.coordinates.length === 0
+    ) {
       return false;
     }
 
     // Check if coordinates form a closed polygon
     const firstCoord = boundary.coordinates[0][0];
-    const lastCoord = boundary.coordinates[0][boundary.coordinates[0].length - 1];
-    
+    const lastCoord =
+      boundary.coordinates[0][boundary.coordinates[0].length - 1];
+
     if (firstCoord[0] !== lastCoord[0] || firstCoord[1] !== lastCoord[1]) {
       return false;
     }
@@ -174,7 +216,7 @@ export const validateZoneBoundary = (boundary: any): boolean => {
 
     return true;
   } catch (error) {
-    console.error('Error validating zone boundary:', error);
+    console.error("Error validating zone boundary:", error);
     return false;
   }
 };

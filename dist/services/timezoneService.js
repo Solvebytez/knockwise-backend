@@ -2,40 +2,41 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.TimezoneService = void 0;
 const date_fns_tz_1 = require("date-fns-tz");
+const date_fns_1 = require("date-fns");
 class TimezoneService {
     /**
      * Convert a date to a specific timezone
      */
     static toTimezone(date, timezone) {
-        const dateObj = typeof date === 'string' ? (0, date_fns_tz_1.parseISO)(date) : date;
-        return (0, date_fns_tz_1.utcToZonedTime)(dateObj, timezone);
+        const dateObj = typeof date === 'string' ? (0, date_fns_1.parseISO)(date) : date;
+        return (0, date_fns_tz_1.toZonedTime)(dateObj, timezone);
     }
     /**
      * Convert a timezone date to UTC
      */
     static toUTC(date, timezone) {
-        const dateObj = typeof date === 'string' ? (0, date_fns_tz_1.parseISO)(date) : date;
-        return (0, date_fns_tz_1.zonedTimeToUtc)(dateObj, timezone);
+        const dateObj = typeof date === 'string' ? (0, date_fns_1.parseISO)(date) : date;
+        return (0, date_fns_tz_1.toZonedTime)(dateObj, timezone);
     }
     /**
      * Format a date in a specific timezone
      */
     static formatInTimezone(date, formatString, timezone) {
-        const dateObj = typeof date === 'string' ? (0, date_fns_tz_1.parseISO)(date) : date;
+        const dateObj = typeof date === 'string' ? (0, date_fns_1.parseISO)(date) : date;
         return (0, date_fns_tz_1.format)(dateObj, formatString, { timeZone: timezone });
     }
     /**
      * Get current time in a specific timezone
      */
     static getCurrentTimeInTimezone(timezone) {
-        return (0, date_fns_tz_1.utcToZonedTime)(new Date(), timezone);
+        return (0, date_fns_tz_1.toZonedTime)(new Date(), timezone);
     }
     /**
      * Check if a date is in the future for a specific timezone
      */
     static isFutureDate(date, timezone) {
-        const dateObj = typeof date === 'string' ? (0, date_fns_tz_1.parseISO)(date) : date;
-        const zonedDate = (0, date_fns_tz_1.utcToZonedTime)(dateObj, timezone);
+        const dateObj = typeof date === 'string' ? (0, date_fns_1.parseISO)(date) : date;
+        const zonedDate = (0, date_fns_tz_1.toZonedTime)(dateObj, timezone);
         const currentTime = this.getCurrentTimeInTimezone(timezone);
         return zonedDate > currentTime;
     }
@@ -89,14 +90,14 @@ class TimezoneService {
      * Format date for display with timezone
      */
     static formatForDisplay(date, timezone) {
-        const dateObj = typeof date === 'string' ? (0, date_fns_tz_1.parseISO)(date) : date;
+        const dateObj = typeof date === 'string' ? (0, date_fns_1.parseISO)(date) : date;
         return (0, date_fns_tz_1.format)(dateObj, 'PPP p zzz', { timeZone: timezone });
     }
     /**
      * Format date for input fields (YYYY-MM-DDTHH:mm)
      */
     static formatForInput(date, timezone) {
-        const dateObj = typeof date === 'string' ? (0, date_fns_tz_1.parseISO)(date) : date;
+        const dateObj = typeof date === 'string' ? (0, date_fns_1.parseISO)(date) : date;
         return (0, date_fns_tz_1.format)(dateObj, "yyyy-MM-dd'T'HH:mm", { timeZone: timezone });
     }
 }

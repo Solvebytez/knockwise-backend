@@ -17,7 +17,7 @@ exports.createTeamValidation = [
     (0, express_validator_1.oneOf)([
         (0, express_validator_1.body)('memberIds').isArray({ min: 1 }),
         (0, express_validator_1.body)('agentIds').isArray({ min: 1 })
-    ], 'At least one team member is required'),
+    ]),
     (0, express_validator_1.body)('memberIds')
         .optional()
         .isArray({ min: 1 })

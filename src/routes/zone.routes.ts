@@ -1,10 +1,11 @@
-import { Router } from 'express';
-import { requireAuth, requireRoles, AuthRequest } from '../middleware/auth';
+import { Router } from "express";
+import { requireAuth, requireRoles, AuthRequest } from "../middleware/auth";
 import {
   createZone,
   listZones,
   getZoneById,
   updateZone,
+  updateZoneUnified,
   deleteZone,
   assignAgentToZone,
   getZoneAssignments,
@@ -18,8 +19,13 @@ import {
   updateResidentStatus,
   getTerritoryOverviewStats,
   checkZoneOverlapBeforeCreate,
-} from '../controllers/zone.controller';
-import { validate } from '../utils/validator';
+  getZoneBuildingStats,
+  getAllZonesBuildingStats,
+  getTerritoryMapView,
+  assignZoneLocation,
+  getZoneLocation,
+} from "../controllers/zone.controller";
+import { validate } from "../utils/validator";
 import {
   createZoneValidation,
   updateZoneValidation,
@@ -32,7 +38,7 @@ import {
   getZonesByProximityValidation,
   getZoneStatisticsValidation,
   getNearbyPropertiesValidation,
-} from '../validators';
+} from "../validators";
 
 const router = Router();
 
@@ -107,7 +113,11 @@ router.use(requireAuth);
  *                       type: boolean
  *                       example: true
  */
-router.post('/check-overlap', requireRoles('SUPERADMIN', 'SUBADMIN'), checkZoneOverlapBeforeCreate);
+router.post(
+  "/check-overlap",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
+  checkZoneOverlapBeforeCreate
+);
 
 // Zone CRUD operations
 /**
@@ -208,8 +218,8 @@ router.post('/check-overlap', requireRoles('SUPERADMIN', 'SUBADMIN'), checkZoneO
  *                   example: "Zone with this name already exists"
  */
 router.post(
-  '/create-zone',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/create-zone",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   validate(createZoneValidation),
   createZone
 );
@@ -247,6 +257,13 @@ router.post(
  *           type: string
  *           enum: [DRAFT, ACTIVE, INACTIVE]
  *           example: "DRAFT"
+ *       - in: query
+ *         name: visualization
+ *         schema:
+ *           type: string
+ *           enum: [true]
+ *           example: "true"
+ *           description: "Set to 'true' to bypass role-based filtering and get all territories for visualization purposes"
  *     responses:
  *       200:
  *         description: List of zones with pagination
@@ -309,11 +326,7 @@ router.post(
  *                       type: integer
  *                       example: 3
  */
-router.get(
-  '/list-all',
-  validate(listZonesValidation),
-  listZones
-);
+router.get("/list-all", validate(listZonesValidation), listZones);
 
 /**
  * @openapi
@@ -388,10 +401,97 @@ router.get(
  *                   type: string
  *                   example: "Zone not found"
  */
+router.get("/get-by-id/:id", validate(getZoneByIdValidation), getZoneById);
+
+/**
+ * @openapi
+ * /api/zones/map-view/{id}:
+ *   get:
+ *     summary: Get territory map view data (zone details + residents)
+ *     tags: [Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: "507f1f77bcf86cd799439012"
+ *     responses:
+ *       200:
+ *         description: Territory map view data retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     zone:
+ *                       type: object
+ *                       properties:
+ *                         _id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                         description:
+ *                           type: string
+ *                         boundary:
+ *                           type: object
+ *                         status:
+ *                           type: string
+ *                         totalResidents:
+ *                           type: number
+ *                         activeResidents:
+ *                           type: number
+ *                         assignedTo:
+ *                           type: object
+ *                     properties:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           _id:
+ *                             type: string
+ *                           address:
+ *                             type: string
+ *                           houseNumber:
+ *                             type: number
+ *                           coordinates:
+ *                             type: array
+ *                           status:
+ *                             type: string
+ *                           lastVisited:
+ *                             type: string
+ *                           residents:
+ *                             type: array
+ *                     statusSummary:
+ *                       type: object
+ *                     statistics:
+ *                       type: object
+ *       404:
+ *         description: Zone not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Zone not found"
+ */
 router.get(
-  '/get-by-id/:id',
+  "/map-view/:id",
   validate(getZoneByIdValidation),
-  getZoneById
+  getTerritoryMapView
 );
 
 /**
@@ -475,10 +575,171 @@ router.get(
  *                   example: "Zone not found"
  */
 router.put(
-  '/update/:id',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/update/:id",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   validate(updateZoneValidation),
   updateZone
+);
+
+/**
+ * @openapi
+ * /api/zones/update-basic/:id:
+ *   put:
+ *     summary: Update zone basic information (name, description only)
+ *     tags: [Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: "507f1f77bcf86cd799439012"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 example: "Downtown Territory"
+ *               description:
+ *                 type: string
+ *                 example: "Updated territory description"
+ *     responses:
+ *       200:
+ *         description: Zone basic info updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Zone basic information updated successfully"
+ *                 data:
+ *                   $ref: '#/components/schemas/Zone'
+ */
+/**
+ * @openapi
+ * /api/zones/update-unified/{id}:
+ *   put:
+ *     summary: Update zone with unified controller (basic info, boundary, residents)
+ *     tags: [Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Zone ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               updateType:
+ *                 type: string
+ *                 enum: ['basic', 'boundary', 'residents', 'all']
+ *                 description: Type of update to perform
+ *                 example: "basic"
+ *               name:
+ *                 type: string
+ *                 example: "Updated Zone Name"
+ *               description:
+ *                 type: string
+ *                 example: "Updated zone description"
+ *               boundary:
+ *                 type: object
+ *                 properties:
+ *                   type:
+ *                     type: string
+ *                     enum: [Polygon]
+ *                   coordinates:
+ *                     type: array
+ *                     items:
+ *                       type: array
+ *                       items:
+ *                         type: number
+ *               buildingData:
+ *                 type: object
+ *                 properties:
+ *                   totalBuildings:
+ *                     type: number
+ *                   residentialHomes:
+ *                     type: number
+ *                   addresses:
+ *                     type: array
+ *                     items:
+ *                       type: string
+ *                   coordinates:
+ *                     type: array
+ *                     items:
+ *                       type: array
+ *                       items:
+ *                         type: number
+ *               residents:
+ *                 type: array
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     name:
+ *                       type: string
+ *                     address:
+ *                       type: string
+ *                     lat:
+ *                       type: number
+ *                     lng:
+ *                       type: number
+ *                     status:
+ *                       type: string
+ *                     phone:
+ *                       type: string
+ *                     email:
+ *                       type: string
+ *                     notes:
+ *                       type: string
+ *     responses:
+ *       200:
+ *         description: Zone updated successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Zone updated successfully"
+ *                 data:
+ *                   $ref: '#/components/schemas/Zone'
+ *       400:
+ *         description: Invalid request data
+ *       403:
+ *         description: Access denied
+ *       404:
+ *         description: Zone not found
+ *       409:
+ *         description: Zone name already exists or boundary overlaps
+ *       500:
+ *         description: Server error
+ */
+router.put(
+  "/update-unified/:id",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
+  updateZoneUnified
 );
 
 /**
@@ -538,8 +799,8 @@ router.put(
  *                   example: "Zone not found"
  */
 router.delete(
-  '/delete/:id',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/delete/:id",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   validate(deleteZoneValidation),
   deleteZone
 );
@@ -622,8 +883,8 @@ router.delete(
  *                   example: "Agent or zone not found"
  */
 router.post(
-  '/assign-agent-to-zone',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/assign-agent-to-zone",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   validate(assignAgentToZoneValidation),
   assignAgentToZone
 );
@@ -706,7 +967,7 @@ router.post(
  *                         example: "ACTIVE"
  */
 router.get(
-  '/list-assignments',
+  "/list-assignments",
   validate(getZoneAssignmentsValidation),
   getZoneAssignments
 );
@@ -755,8 +1016,8 @@ router.get(
  *                   example: "Assignment not found"
  */
 router.put(
-  '/remove-agent-from-zone/:assignmentId',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/remove-agent-from-zone/:assignmentId",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   validate(removeAgentFromZoneValidation),
   removeAgentFromZone
 );
@@ -846,8 +1107,8 @@ router.put(
  *                   example: "Team or zone not found"
  */
 router.post(
-  '/assign-team-to-zone',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/assign-team-to-zone",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   assignTeamToZone
 );
 
@@ -907,8 +1168,8 @@ router.post(
  *                   example: "Zone not found"
  */
 router.put(
-  '/remove-team-from-zone/:zoneId',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/remove-team-from-zone/:zoneId",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   removeTeamFromZone
 );
 
@@ -994,7 +1255,7 @@ router.put(
  *                   example: "Latitude and longitude are required"
  */
 router.get(
-  '/find-by-proximity',
+  "/find-by-proximity",
   validate(getZonesByProximityValidation),
   getZonesByProximity
 );
@@ -1066,7 +1327,7 @@ router.get(
  *                   example: "Zone not found"
  */
 router.get(
-  '/statistics/:zoneId',
+  "/statistics/:zoneId",
   validate(getZoneStatisticsValidation),
   getZoneStatistics
 );
@@ -1177,7 +1438,7 @@ router.get(
  *                   example: "Zone not found"
  */
 router.get(
-  '/detailed-stats/:id',
+  "/detailed-stats/:id",
   validate(getZoneByIdValidation),
   getZoneDetailedStats
 );
@@ -1241,10 +1502,7 @@ router.get(
  *                           type: integer
  *                           example: 92
  */
-router.get(
-  '/overview-stats',
-  getTerritoryOverviewStats
-);
+router.get("/overview-stats", getTerritoryOverviewStats);
 
 /**
  * @openapi
@@ -1348,11 +1606,7 @@ router.get(
  *                         pages:
  *                           type: integer
  */
-router.get(
-  '/:id/residents',
-  validate(getZoneByIdValidation),
-  getZoneResidents
-);
+router.get("/:id/residents", validate(getZoneByIdValidation), getZoneResidents);
 
 /**
  * @openapi
@@ -1435,9 +1689,309 @@ router.get(
  *                   type: string
  *                   example: "Resident not found"
  */
-router.put(
-  '/residents/:residentId',
-  updateResidentStatus
+router.put("/residents/:residentId", updateResidentStatus);
+
+/**
+ * @openapi
+ * /api/zones/{zoneId}/building-stats:
+ *   get:
+ *     summary: Get building statistics by odd/even numbers for a specific zone
+ *     tags: [Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: zoneId
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: "507f1f77bcf86cd799439013"
+ *     responses:
+ *       200:
+ *         description: Building statistics retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     zoneName:
+ *                       type: string
+ *                       example: "Downtown District"
+ *                     totalBuildings:
+ *                       type: integer
+ *                       example: 25
+ *                     residentialHomes:
+ *                       type: integer
+ *                       example: 25
+ *                     oddBuildings:
+ *                       type: object
+ *                       properties:
+ *                         count:
+ *                           type: integer
+ *                           example: 13
+ *                         numbers:
+ *                           type: array
+ *                           items:
+ *                             type: integer
+ *                           example: [101, 103, 105, 107, 109, 111, 113, 115, 117, 119, 121, 123, 125]
+ *                         range:
+ *                           type: object
+ *                           properties:
+ *                             min:
+ *                               type: integer
+ *                               example: 101
+ *                             max:
+ *                               type: integer
+ *                               example: 125
+ *                     evenBuildings:
+ *                       type: object
+ *                       properties:
+ *                         count:
+ *                           type: integer
+ *                           example: 12
+ *                         numbers:
+ *                           type: array
+ *                           items:
+ *                             type: integer
+ *                           example: [100, 102, 104, 106, 108, 110, 112, 114, 116, 118, 120, 122]
+ *                         range:
+ *                           type: object
+ *                           properties:
+ *                             min:
+ *                               type: integer
+ *                               example: 100
+ *                             max:
+ *                               type: integer
+ *                               example: 122
+ *                     addresses:
+ *                       type: array
+ *                       items:
+ *                         type: string
+ *                       example: ["100 Main St", "101 Main St", "102 Main St"]
+ *                     coordinates:
+ *                       type: array
+ *                       items:
+ *                         type: array
+ *                         items:
+ *                           type: number
+ *                       example: [[-74.0060, 40.7128], [-74.0061, 40.7129], [-74.0062, 40.7130]]
+ *       404:
+ *         description: Zone not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Zone not found"
+ */
+router.get(
+  "/:zoneId/building-stats",
+  validate(getZoneByIdValidation),
+  getZoneBuildingStats
 );
+
+/**
+ * @openapi
+ * /api/zones/building-stats/all:
+ *   get:
+ *     summary: Get building statistics for all accessible zones
+ *     tags: [Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Building statistics retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     summary:
+ *                       type: object
+ *                       properties:
+ *                         totalZones:
+ *                           type: integer
+ *                           example: 5
+ *                         totalBuildings:
+ *                           type: integer
+ *                           example: 125
+ *                         totalOddBuildings:
+ *                           type: integer
+ *                           example: 63
+ *                         totalEvenBuildings:
+ *                           type: integer
+ *                           example: 62
+ *                         averageBuildingsPerZone:
+ *                           type: integer
+ *                           example: 25
+ *                     zones:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           zoneId:
+ *                             type: string
+ *                             example: "507f1f77bcf86cd799439013"
+ *                           zoneName:
+ *                             type: string
+ *                             example: "Downtown District"
+ *                           status:
+ *                             type: string
+ *                             example: "ACTIVE"
+ *                           totalBuildings:
+ *                             type: integer
+ *                             example: 25
+ *                           oddCount:
+ *                             type: integer
+ *                             example: 13
+ *                           evenCount:
+ *                             type: integer
+ *                             example: 12
+ *                           oddRange:
+ *                             type: object
+ *                             properties:
+ *                               min:
+ *                                 type: integer
+ *                                 example: 101
+ *                               max:
+ *                                 type: integer
+ *                                 example: 125
+ *                           evenRange:
+ *                             type: object
+ *                             properties:
+ *                               min:
+ *                                 type: integer
+ *                                 example: 100
+ *                               max:
+ *                                 type: integer
+ *                                 example: 122
+ */
+router.get("/building-stats/all", getAllZonesBuildingStats);
+
+/**
+ * @openapi
+ * /api/zones/{id}/location:
+ *   put:
+ *     summary: Assign location hierarchy to a zone
+ *     tags: [Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: "68f248b6f061ee5b03d474a7"
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               areaId:
+ *                 type: string
+ *                 example: "68f248b6f061ee5b03d474a7"
+ *               municipalityId:
+ *                 type: string
+ *                 example: "68f248b6f061ee5b03d474a9"
+ *               communityId:
+ *                 type: string
+ *                 example: "68f248b6f061ee5b03d474ab"
+ *     responses:
+ *       200:
+ *         description: Zone location assigned successfully
+ *       400:
+ *         description: Invalid location hierarchy
+ *       404:
+ *         description: Zone or location not found
+ */
+router.put("/:id/location", assignZoneLocation);
+
+/**
+ * @openapi
+ * /api/zones/{id}/location:
+ *   get:
+ *     summary: Get zone location hierarchy
+ *     tags: [Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         example: "68f248b6f061ee5b03d474a7"
+ *     responses:
+ *       200:
+ *         description: Zone location retrieved successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     zone:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                     area:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                         type:
+ *                           type: string
+ *                     municipality:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                         type:
+ *                           type: string
+ *                     community:
+ *                       type: object
+ *                       properties:
+ *                         id:
+ *                           type: string
+ *                         name:
+ *                           type: string
+ *                         type:
+ *                           type: string
+ *       404:
+ *         description: Zone not found
+ */
+router.get("/:id/location", getZoneLocation);
 
 export default router;

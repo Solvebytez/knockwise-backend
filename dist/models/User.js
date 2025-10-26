@@ -48,6 +48,7 @@ const UserSchema = new mongoose_1.Schema({
     originalPassword: { type: String, select: false }, // Add originalPassword field
     role: { type: String, enum: ['SUPERADMIN', 'SUBADMIN', 'AGENT'], required: true, index: true },
     status: { type: String, enum: ['ACTIVE', 'INACTIVE'], default: 'ACTIVE' },
+    assignmentStatus: { type: String, enum: ['ASSIGNED', 'UNASSIGNED'], default: 'UNASSIGNED' },
     timezone: { type: String, default: 'America/New_York' }, // Default timezone
     // Primary assignments (for backward compatibility)
     primaryTeamId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Team', default: null },

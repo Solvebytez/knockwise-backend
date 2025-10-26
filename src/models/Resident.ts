@@ -1,13 +1,15 @@
-import mongoose, { Schema, Document, Model } from 'mongoose';
+import mongoose, { Schema, Document, Model } from "mongoose";
 
-export type ResidentStatus = 
-  | 'not-visited'
-  | 'interested'
-  | 'visited'
-  | 'callback'
-  | 'appointment'
-  | 'follow-up'
-  | 'not-interested';
+export type ResidentStatus =
+  | "not-visited"
+  | "interested"
+  | "visited"
+  | "callback"
+  | "appointment"
+  | "follow-up"
+  | "not-interested";
+
+export type ResidentDataSource = "AUTO" | "MANUAL";
 
 export interface IResident extends Document {
   zoneId: mongoose.Types.ObjectId;
@@ -20,35 +22,66 @@ export interface IResident extends Document {
   email?: string;
   lastVisited?: Date;
   assignedAgentId?: mongoose.Types.ObjectId;
+  lastUpdatedBy?: mongoose.Types.ObjectId; // Track which user last updated this resident
+  dataSource: ResidentDataSource; // Track if auto-detected or manually added
+  propertyDataId?: mongoose.Types.ObjectId | null; // Link to detailed property info
   createdAt: Date;
   updatedAt: Date;
 }
 
 const ResidentSchema = new Schema<IResident>(
   {
-    zoneId: { type: Schema.Types.ObjectId, ref: 'Zone', required: true, index: true },
+    zoneId: {
+      type: Schema.Types.ObjectId,
+      ref: "Zone",
+      required: true,
+      index: true,
+    },
     address: { type: String, required: true },
     coordinates: { type: [Number], required: true }, // [lng, lat]
     houseNumber: { type: Number, index: true },
-    status: { 
-      type: String, 
-      enum: ['not-visited', 'interested', 'visited', 'callback', 'appointment', 'follow-up', 'not-interested'],
-      default: 'not-visited',
-      index: true 
+    status: {
+      type: String,
+      enum: [
+        "not-visited",
+        "interested",
+        "visited",
+        "callback",
+        "appointment",
+        "follow-up",
+        "not-interested",
+      ],
+      default: "not-visited",
+      index: true,
     },
     notes: { type: String },
     phone: { type: String },
     email: { type: String, lowercase: true },
     lastVisited: { type: Date },
-    assignedAgentId: { type: Schema.Types.ObjectId, ref: 'User', index: true },
+    assignedAgentId: { type: Schema.Types.ObjectId, ref: "User", index: true },
+    lastUpdatedBy: { type: Schema.Types.ObjectId, ref: "User", index: true },
+    dataSource: {
+      type: String,
+      enum: ["AUTO", "MANUAL"],
+      default: "AUTO",
+      index: true,
+    },
+    propertyDataId: {
+      type: Schema.Types.ObjectId,
+      ref: "PropertyData",
+      default: null,
+      index: true,
+    },
   },
   { timestamps: true }
 );
 
-ResidentSchema.index({ coordinates: '2dsphere' });
+ResidentSchema.index({ coordinates: "2dsphere" });
 ResidentSchema.index({ zoneId: 1, status: 1 });
 ResidentSchema.index({ zoneId: 1, houseNumber: 1 });
 
-export const Resident: Model<IResident> = mongoose.models.Resident || mongoose.model<IResident>('Resident', ResidentSchema);
+export const Resident: Model<IResident> =
+  mongoose.models.Resident ||
+  mongoose.model<IResident>("Resident", ResidentSchema);
 
 export default Resident;

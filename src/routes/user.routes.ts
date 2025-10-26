@@ -1,5 +1,5 @@
-import { Router, Response } from 'express';
-import { requireAuth, requireRoles, AuthRequest } from '../middleware/auth';
+import { Router, Response } from "express";
+import { requireAuth, requireRoles, AuthRequest } from "../middleware/auth";
 import {
   createUser,
   updateUser,
@@ -11,6 +11,7 @@ import {
   getMyProfile,
   updateMyProfile,
   getMyZoneInfo,
+  getMyTerritories,
   getSystemAnalytics,
   getTeamPerformance,
   getMyCreatedAgents,
@@ -20,8 +21,9 @@ import {
   bulkUpdateAgentStatuses,
   getDetailedAgent,
   refreshAllStatuses,
-} from '../controllers/user.controller';
-import { validate } from '../utils/validator';
+  refreshAssignmentStatuses,
+} from "../controllers/user.controller";
+import { validate } from "../utils/validator";
 import {
   createUserValidation,
   createAgentValidation,
@@ -32,8 +34,8 @@ import {
   getUserByIdValidation,
   deleteUserValidation,
   getMyTeamMembersValidation,
-  getTeamPerformanceValidation
-} from '../validators';
+  getTeamPerformanceValidation,
+} from "../validators";
 
 const router = Router();
 
@@ -134,8 +136,8 @@ router.use(requireAuth);
  *                   example: "Email already exists"
  */
 router.post(
-  '/create-subadmin',
-  requireRoles('SUPERADMIN'),
+  "/create-subadmin",
+  requireRoles("SUPERADMIN"),
   validate(createUserValidation),
   createUser
 );
@@ -230,11 +232,11 @@ router.post(
  *                   example: "Email already exists"
  */
 router.post(
-  '/create-agent',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/create-agent",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   validate(createAgentValidation),
   async (req: AuthRequest, res: Response) => {
-    req.body.role = 'AGENT'; // Force role to AGENT
+    req.body.role = "AGENT"; // Force role to AGENT
     return createUser(req, res);
   }
 );
@@ -354,8 +356,8 @@ router.post(
  *                       example: 3
  */
 router.get(
-  '/list-all',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/list-all",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   validate(listUsersValidation),
   listUsers
 );
@@ -393,6 +395,19 @@ router.get(
  *           minimum: 1
  *           maximum: 100
  *           example: 10
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [ACTIVE, INACTIVE]
+ *           description: Filter agents by status (defaults to ACTIVE)
+ *           example: "ACTIVE"
+ *       - in: query
+ *         name: excludeTeamId
+ *         schema:
+ *           type: string
+ *           description: Exclude agents who are already members of this team (useful for team editing)
+ *           example: "507f1f77bcf86cd799439011"
  *     responses:
  *       200:
  *         description: List of agents created by current admin
@@ -481,8 +496,8 @@ router.get(
  *                       example: 3
  */
 router.get(
-  '/my-created-agents',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/my-created-agents",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   getMyCreatedAgents
 );
 
@@ -522,8 +537,8 @@ router.get(
  *                       example: 8
  */
 router.get(
-  '/team-overview',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/team-overview",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   getTeamOverview
 );
 
@@ -587,8 +602,8 @@ router.get(
  *                         example: "2024-01-15T10:30:00.000Z"
  */
 router.get(
-  '/recent-additions',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/recent-additions",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   getRecentAdditions
 );
 
@@ -670,8 +685,8 @@ router.get(
  *                   example: "Agent not found"
  */
 router.put(
-  '/update-agent-zone/:agentId',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/update-agent-zone/:agentId",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   updateAgentZoneAssignment
 );
 
@@ -760,8 +775,8 @@ router.put(
  *                   example: "Agents not found"
  */
 router.post(
-  '/bulk-update-agent-statuses',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/bulk-update-agent-statuses",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   bulkUpdateAgentStatuses
 );
 
@@ -846,9 +861,9 @@ router.post(
  *                   example: "User not found"
  */
 router.get(
-  '/get-by-id/:id',
+  "/get-by-id/:id",
   requireAuth,
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   validate(getUserByIdValidation),
   getUserById
 );
@@ -956,9 +971,9 @@ router.get(
  *                   example: "User not found"
  */
 router.put(
-  '/update/:id',
+  "/update/:id",
   requireAuth,
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   validate(updateUserValidation),
   updateUser
 );
@@ -1020,9 +1035,9 @@ router.put(
  *                   example: "User not found"
  */
 router.delete(
-  '/delete/:id',
+  "/delete/:id",
   requireAuth,
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   validate(deleteUserValidation),
   deleteUser
 );
@@ -1081,7 +1096,12 @@ router.delete(
  *                         format: date-time
  *                         example: "2024-01-15T10:30:00.000Z"
  */
-router.get('/my-team-members', requireRoles('SUBADMIN', 'AGENT'), validate(getMyTeamMembersValidation), getMyTeamMembers);
+router.get(
+  "/my-team-members",
+  requireRoles("SUBADMIN", "AGENT"),
+  validate(getMyTeamMembersValidation),
+  getMyTeamMembers
+);
 
 /**
  * @openapi
@@ -1134,8 +1154,8 @@ router.get('/my-team-members', requireRoles('SUBADMIN', 'AGENT'), validate(getMy
  *                   example: "Agent or team not found"
  */
 router.post(
-  '/assign-agent-to-team',
-  requireRoles('SUBADMIN'),
+  "/assign-agent-to-team",
+  requireRoles("SUBADMIN"),
   validate(assignAgentToTeamValidation),
   assignAgentToTeam
 );
@@ -1201,7 +1221,7 @@ router.post(
  *                       format: date-time
  *                       example: "2024-01-15T10:30:00.000Z"
  */
-router.get('/my-profile', getMyProfile);
+router.get("/my-profile", getMyProfile);
 
 /**
  * @openapi
@@ -1272,7 +1292,7 @@ router.get('/my-profile', getMyProfile);
  *                   example: "Email already exists"
  */
 router.put(
-  '/update-my-profile',
+  "/update-my-profile",
   requireAuth,
   validate(updateProfileValidation),
   updateMyProfile
@@ -1335,7 +1355,121 @@ router.put(
  *                   type: string
  *                   example: "No zone assigned"
  */
-router.get('/my-zone-info', requireRoles('AGENT'), getMyZoneInfo);
+router.get("/my-zone-info", requireRoles("AGENT"), getMyZoneInfo);
+
+/**
+ * @openapi
+ * /api/users/my-territories:
+ *   get:
+ *     summary: Get all territories assigned to logged-in agent (Agent only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: List of all territories assigned to the agent (individual and team level)
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     territories:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           _id:
+ *                             type: string
+ *                             example: "507f1f77bcf86cd799439012"
+ *                           name:
+ *                             type: string
+ *                             example: "Downtown District"
+ *                           description:
+ *                             type: string
+ *                             example: "High-value residential area"
+ *                           status:
+ *                             type: string
+ *                             example: "ACTIVE"
+ *                           assignmentType:
+ *                             type: string
+ *                             enum: [individual, team]
+ *                             example: "individual"
+ *                           isScheduled:
+ *                             type: boolean
+ *                             example: false
+ *                           isPrimary:
+ *                             type: boolean
+ *                             example: true
+ *                           teamName:
+ *                             type: string
+ *                             nullable: true
+ *                             example: "Sales Team Alpha"
+ *                           statistics:
+ *                             type: object
+ *                             properties:
+ *                               totalHouses:
+ *                                 type: number
+ *                                 example: 156
+ *                               visitedCount:
+ *                                 type: number
+ *                                 example: 45
+ *                               notVisitedCount:
+ *                                 type: number
+ *                                 example: 111
+ *                               interestedCount:
+ *                                 type: number
+ *                                 example: 12
+ *                               notInterestedCount:
+ *                                 type: number
+ *                                 example: 8
+ *                               completionPercentage:
+ *                                 type: number
+ *                                 example: 29
+ *                     summary:
+ *                       type: object
+ *                       properties:
+ *                         totalTerritories:
+ *                           type: number
+ *                           example: 3
+ *                         activeTerritories:
+ *                           type: number
+ *                           example: 3
+ *                         scheduledTerritories:
+ *                           type: number
+ *                           example: 0
+ *                         totalHouses:
+ *                           type: number
+ *                           example: 456
+ *                         visitedHouses:
+ *                           type: number
+ *                           example: 120
+ *                         notVisitedHouses:
+ *                           type: number
+ *                           example: 336
+ *                         completionPercentage:
+ *                           type: number
+ *                           example: 26
+ *       404:
+ *         description: Agent not found
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: false
+ *                 message:
+ *                   type: string
+ *                   example: "Agent not found"
+ */
+router.get("/my-territories", requireRoles("AGENT"), getMyTerritories);
 
 /**
  * @openapi
@@ -1436,9 +1570,9 @@ router.get('/my-zone-info', requireRoles('AGENT'), getMyZoneInfo);
  *                   example: "Agent not found"
  */
 router.get(
-  '/get-detailed-agent/:agentId',
+  "/get-detailed-agent/:agentId",
   requireAuth,
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   getDetailedAgent
 );
 
@@ -1478,7 +1612,7 @@ router.get(
  *                       type: integer
  *                       example: 18
  */
-router.get('/system-analytics', requireRoles('SUPERADMIN'), getSystemAnalytics);
+router.get("/system-analytics", requireRoles("SUPERADMIN"), getSystemAnalytics);
 
 /**
  * @openapi
@@ -1582,9 +1716,9 @@ router.get('/system-analytics', requireRoles('SUPERADMIN'), getSystemAnalytics);
  *                   example: "Team not found"
  */
 router.get(
-  '/team-performance/:teamId',
+  "/team-performance/:teamId",
   requireAuth,
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   validate(getTeamPerformanceValidation),
   getTeamPerformance
 );
@@ -1649,9 +1783,61 @@ router.get(
  *                           type: integer
  */
 router.post(
-  '/refresh-statuses',
-  requireRoles('SUPERADMIN', 'SUBADMIN'),
+  "/refresh-statuses",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
   refreshAllStatuses
+);
+
+/**
+ * @openapi
+ * /api/users/refresh-assignment-statuses:
+ *   post:
+ *     summary: Refresh assignment statuses for all agents based on zone assignments
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Assignment statuses refreshed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Assignment statuses refreshed successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     totalAgents:
+ *                       type: integer
+ *                       example: 5
+ *                     successful:
+ *                       type: integer
+ *                       example: 4
+ *                     failed:
+ *                       type: integer
+ *                       example: 1
+ *                     results:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           agentId:
+ *                             type: string
+ *                           name:
+ *                             type: string
+ *                           success:
+ *                             type: boolean
+ */
+router.post(
+  "/refresh-assignment-statuses",
+  requireRoles("SUPERADMIN", "SUBADMIN"),
+  refreshAssignmentStatuses
 );
 
 export default router;

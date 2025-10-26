@@ -343,6 +343,19 @@ router.get('/list-all', (0, auth_1.requireRoles)('SUPERADMIN', 'SUBADMIN'), (0, 
  *           minimum: 1
  *           maximum: 100
  *           example: 10
+ *       - in: query
+ *         name: status
+ *         schema:
+ *           type: string
+ *           enum: [ACTIVE, INACTIVE]
+ *           description: Filter agents by status (defaults to ACTIVE)
+ *           example: "ACTIVE"
+ *       - in: query
+ *         name: excludeTeamId
+ *         schema:
+ *           type: string
+ *           description: Exclude agents who are already members of this team (useful for team editing)
+ *           example: "507f1f77bcf86cd799439011"
  *     responses:
  *       200:
  *         description: List of agents created by current admin
@@ -1524,5 +1537,52 @@ router.get('/team-performance/:teamId', auth_1.requireAuth, (0, auth_1.requireRo
  *                           type: integer
  */
 router.post('/refresh-statuses', (0, auth_1.requireRoles)('SUPERADMIN', 'SUBADMIN'), user_controller_1.refreshAllStatuses);
+/**
+ * @openapi
+ * /api/users/refresh-assignment-statuses:
+ *   post:
+ *     summary: Refresh assignment statuses for all agents based on zone assignments
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Assignment statuses refreshed successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Assignment statuses refreshed successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     totalAgents:
+ *                       type: integer
+ *                       example: 5
+ *                     successful:
+ *                       type: integer
+ *                       example: 4
+ *                     failed:
+ *                       type: integer
+ *                       example: 1
+ *                     results:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                         properties:
+ *                           agentId:
+ *                             type: string
+ *                           name:
+ *                             type: string
+ *                           success:
+ *                             type: boolean
+ */
+router.post('/refresh-assignment-statuses', (0, auth_1.requireRoles)('SUPERADMIN', 'SUBADMIN'), user_controller_1.refreshAssignmentStatuses);
 exports.default = router;
 //# sourceMappingURL=user.routes.js.map

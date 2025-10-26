@@ -11,6 +11,7 @@ export interface IResident extends Document {
     email?: string;
     lastVisited?: Date;
     assignedAgentId?: mongoose.Types.ObjectId;
+    propertyDataId?: mongoose.Types.ObjectId | null;
     createdAt: Date;
     updatedAt: Date;
 }

@@ -5,7 +5,7 @@ export interface IScheduledAssignment extends Document {
     zoneId: mongoose.Types.ObjectId;
     scheduledDate: Date;
     effectiveFrom: Date;
-    status: 'PENDING' | 'ACTIVATED' | 'CANCELLED';
+    status: 'PENDING' | 'ACTIVATED' | 'CANCELLED' | 'COMPLETED' | 'SCHEDULED';
     assignedBy: mongoose.Types.ObjectId;
     notificationSent: boolean;
     createdAt: Date;

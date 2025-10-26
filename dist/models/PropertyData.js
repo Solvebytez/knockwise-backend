@@ -64,6 +64,7 @@ const PropertyDataSchema = new mongoose_1.Schema({
     estimatedValue: { type: Number, index: true },
     lastAssessedValue: { type: Number },
     taxAmount: { type: Number },
+    zoneId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'Zone', default: null, index: true },
     dataSource: { type: String, enum: ['MLS', 'PUBLIC_RECORDS', 'THIRD_PARTY', 'MANUAL'], required: true },
     lastUpdated: { type: Date, default: Date.now, index: true },
     leadScore: { type: Number, min: 1, max: 100, index: true },

@@ -12,6 +12,7 @@ export interface IUser extends Document {
   originalPassword?: string; // Store original password for admin viewing
   role: UserRole;
   status: 'ACTIVE' | 'INACTIVE';
+  assignmentStatus: 'ASSIGNED' | 'UNASSIGNED'; // New field for zone assignment status
   timezone?: string; // User's preferred timezone
   // Primary assignments (for backward compatibility and main assignment)
   primaryTeamId?: mongoose.Types.ObjectId | null;
@@ -36,6 +37,7 @@ const UserSchema = new Schema<IUser>(
     originalPassword: { type: String, select: false }, // Add originalPassword field
     role: { type: String, enum: ['SUPERADMIN', 'SUBADMIN', 'AGENT'], required: true, index: true },
     status: { type: String, enum: ['ACTIVE', 'INACTIVE'], default: 'ACTIVE' },
+    assignmentStatus: { type: String, enum: ['ASSIGNED', 'UNASSIGNED'], default: 'UNASSIGNED' },
     timezone: { type: String, default: 'America/New_York' }, // Default timezone
     // Primary assignments (for backward compatibility)
     primaryTeamId: { type: Schema.Types.ObjectId, ref: 'Team', default: null },

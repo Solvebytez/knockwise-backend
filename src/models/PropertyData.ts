@@ -10,6 +10,8 @@ export interface IPropertyData extends Document {
     type: 'Point';
     coordinates: [number, number]; // [lng, lat]
   };
+  // Zone Relationship
+  zoneId?: mongoose.Types.ObjectId | null;
   // MLS Data
   mlsId?: string;
   mlsStatus?: 'ACTIVE' | 'SOLD' | 'PENDING' | 'WITHDRAWN';
@@ -72,6 +74,7 @@ const PropertyDataSchema = new Schema<IPropertyData>(
     estimatedValue: { type: Number, index: true },
     lastAssessedValue: { type: Number },
     taxAmount: { type: Number },
+    zoneId: { type: Schema.Types.ObjectId, ref: 'Zone', default: null, index: true },
     dataSource: { type: String, enum: ['MLS', 'PUBLIC_RECORDS', 'THIRD_PARTY', 'MANUAL'], required: true },
     lastUpdated: { type: Date, default: Date.now, index: true },
     leadScore: { type: Number, min: 1, max: 100, index: true },

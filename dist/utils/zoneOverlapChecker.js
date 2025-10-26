@@ -8,7 +8,7 @@ const Zone_1 = require("../models/Zone");
  * @param excludeZoneId - Zone ID to exclude from overlap check (for updates)
  * @returns OverlapResult with overlap information
  */
-const checkZoneOverlap = async (boundary, excludeZoneId) => {
+const checkZoneOverlap = async (boundary, excludeZoneId, currentUser) => {
     try {
         // Ensure boundary is a valid GeoJSON polygon
         if (!boundary || boundary.type !== 'Polygon' || !boundary.coordinates) {
@@ -26,12 +26,17 @@ const checkZoneOverlap = async (boundary, excludeZoneId) => {
         if (excludeZoneId) {
             query._id = { $ne: excludeZoneId };
         }
+        // For overlap checking, we check against ALL zones to prevent overlaps
+        // But we'll filter the response based on user authorization
+        const checkAllZones = true; // Always check all zones for overlap prevention
         // Find zones that intersect with the new boundary
         const overlappingZones = await Zone_1.Zone.find(query).select('_id name status createdBy createdAt');
         if (overlappingZones.length === 0) {
             return {
                 hasOverlap: false,
-                overlappingZones: []
+                overlappingZones: [],
+                totalOverlaps: 0,
+                authorizedOverlaps: 0
             };
         }
         // Calculate overlap percentage for the most significant overlap
@@ -58,10 +63,19 @@ const checkZoneOverlap = async (boundary, excludeZoneId) => {
                 console.error('Error calculating overlap percentage:', error);
             }
         }
+        // Filter overlapping zones based on user authorization (for response only)
+        let authorizedOverlappingZones = overlappingZones;
+        if (currentUser && currentUser.role !== 'SUPERADMIN') {
+            authorizedOverlappingZones = overlappingZones.filter(zone => zone.createdBy?.toString() === currentUser.id ||
+                zone.teamId?.toString() === currentUser.primaryTeamId ||
+                zone.assignedAgentId?.toString() === currentUser.id);
+        }
         return {
-            hasOverlap: true,
-            overlappingZones,
-            overlapPercentage: maxOverlapPercentage
+            hasOverlap: overlappingZones.length > 0, // Always return true if there's any overlap
+            overlappingZones: authorizedOverlappingZones, // But only show authorized zones in response
+            overlapPercentage: maxOverlapPercentage,
+            totalOverlaps: overlappingZones.length, // Include total count for debugging
+            authorizedOverlaps: authorizedOverlappingZones.length // Include authorized count
         };
     }
     catch (error) {

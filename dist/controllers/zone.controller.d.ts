@@ -1,7 +1,7 @@
-import { Response } from 'express';
-import { AuthRequest } from '../middleware/auth';
+import { Response } from "express";
+import { AuthRequest } from "../middleware/auth";
 export declare const createZone: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
-export declare const listZones: (req: AuthRequest, res: Response) => Promise<void>;
+export declare const listZones: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 export declare const checkZoneOverlapBeforeCreate: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 export declare const getZoneById: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 export declare const updateZone: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
@@ -17,4 +17,9 @@ export declare const updateResidentStatus: (req: AuthRequest, res: Response) => 
 export declare const assignTeamToZone: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 export declare const removeTeamFromZone: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 export declare const getTerritoryOverviewStats: (req: AuthRequest, res: Response) => Promise<void>;
+export declare const getZoneBuildingStats: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
+export declare const getAllZonesBuildingStats: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
+export declare const getTerritoryMapView: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
+export declare const updateZoneUnified: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
+export declare const updateZoneResidents: (req: AuthRequest, res: Response) => Promise<Response<any, Record<string, any>> | undefined>;
 //# sourceMappingURL=zone.controller.d.ts.map

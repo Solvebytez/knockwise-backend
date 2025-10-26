@@ -6,7 +6,7 @@ export interface IScheduledAssignment extends Document {
   zoneId: mongoose.Types.ObjectId;
   scheduledDate: Date;
   effectiveFrom: Date;
-  status: 'PENDING' | 'ACTIVATED' | 'CANCELLED';
+  status: 'PENDING' | 'ACTIVATED' | 'CANCELLED' | 'COMPLETED' | 'SCHEDULED';
   assignedBy: mongoose.Types.ObjectId;
   notificationSent: boolean;
   createdAt: Date;
@@ -22,7 +22,7 @@ const ScheduledAssignmentSchema = new Schema<IScheduledAssignment>(
     effectiveFrom: { type: Date, required: true, index: true },
     status: { 
       type: String, 
-      enum: ['PENDING', 'ACTIVATED', 'CANCELLED'], 
+      enum: ['PENDING', 'ACTIVATED', 'CANCELLED', 'COMPLETED', 'SCHEDULED'], 
       default: 'PENDING', 
       index: true 
     },

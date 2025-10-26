@@ -235,13 +235,19 @@ async function refresh(req, res) {
             res.status(401).json({ message: "Invalid refresh token" });
             return;
         }
-        // 3. Issue new access token
+        // 3. Get user info for role
+        const user = await User_1.default.findById(payload.sub).select('role name email status');
+        if (!user) {
+            res.status(401).json({ message: "User not found" });
+            return;
+        }
+        // 4. Issue new access token
         const accessToken = (0, jwt_1.signAccessToken)({
             sub: payload.sub,
-            role: payload.role,
+            role: user.role,
         });
         const isProduction = process.env.NODE_ENV === "production";
-        // 4. Cookie options (important!)
+        // 5. Cookie options (important!)
         const cookieOptions = {
             httpOnly: true,
             secure: isProduction, // only HTTPS in production
@@ -249,11 +255,21 @@ async function refresh(req, res) {
             path: "/", // allow frontend to access everywhere
             maxAge: parseTime(env_1.env.jwtExpiresIn),
         };
-        // 5. Send new accessToken as cookie
+        // 6. Send new accessToken as cookie
         res.cookie("accessToken", accessToken, cookieOptions);
+        // 7. Return user role and basic info
         res.json({
             success: true,
             message: "Token refreshed successfully",
+            data: {
+                user: {
+                    _id: user._id,
+                    name: user.name,
+                    email: user.email,
+                    role: user.role,
+                    status: user.status
+                }
+            }
         });
     }
     catch (err) {
@@ -268,12 +284,28 @@ async function logout(req, res) {
         const cookieRefreshToken = req.cookies?.refreshToken;
         const refreshToken = bodyRefreshToken || cookieRefreshToken;
         if (refreshToken) {
+            // Hash the refresh token to match what's stored in DB
+            const hashedToken = crypto_1.default
+                .createHash("sha256")
+                .update(refreshToken)
+                .digest("hex");
             // Revoke the refresh token
-            await RefreshToken_1.default.findOneAndUpdate({ token: refreshToken }, { revokedAt: new Date() });
+            await RefreshToken_1.default.findOneAndUpdate({ token: hashedToken }, { revokedAt: new Date() });
         }
-        // Clear cookies
-        res.clearCookie('accessToken', { path: '/' });
-        res.clearCookie('refreshToken', { path: '/' });
+        // Clear cookies with proper options to ensure they're removed
+        const isProduction = process.env.NODE_ENV === "production";
+        res.clearCookie('accessToken', {
+            path: '/',
+            httpOnly: true,
+            secure: isProduction,
+            sameSite: isProduction ? "none" : "lax"
+        });
+        res.clearCookie('refreshToken', {
+            path: '/',
+            httpOnly: true,
+            secure: isProduction,
+            sameSite: isProduction ? "none" : "lax"
+        });
         res.json({
             success: true,
             message: 'Logged out successfully'
@@ -282,8 +314,19 @@ async function logout(req, res) {
     catch (error) {
         console.error('Logout error:', error);
         // Even if there's an error, clear cookies
-        res.clearCookie('accessToken', { path: '/' });
-        res.clearCookie('refreshToken', { path: '/' });
+        const isProduction = process.env.NODE_ENV === "production";
+        res.clearCookie('accessToken', {
+            path: '/',
+            httpOnly: true,
+            secure: isProduction,
+            sameSite: isProduction ? "none" : "lax"
+        });
+        res.clearCookie('refreshToken', {
+            path: '/',
+            httpOnly: true,
+            secure: isProduction,
+            sameSite: isProduction ? "none" : "lax"
+        });
         res.json({
             success: true,
             message: 'Logged out successfully'

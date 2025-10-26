@@ -51,6 +51,7 @@ const ResidentSchema = new mongoose_1.Schema({
     email: { type: String, lowercase: true },
     lastVisited: { type: Date },
     assignedAgentId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'User', index: true },
+    propertyDataId: { type: mongoose_1.Schema.Types.ObjectId, ref: 'PropertyData', default: null, index: true },
 }, { timestamps: true });
 ResidentSchema.index({ coordinates: '2dsphere' });
 ResidentSchema.index({ zoneId: 1, status: 1 });

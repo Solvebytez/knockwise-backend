@@ -3,6 +3,7 @@ export interface ITeam extends Document {
     name: string;
     description?: string;
     status: 'ACTIVE' | 'INACTIVE';
+    assignmentStatus: 'ASSIGNED' | 'UNASSIGNED';
     createdBy: mongoose.Types.ObjectId;
     leaderId: mongoose.Types.ObjectId;
     agentIds: mongoose.Types.ObjectId[];

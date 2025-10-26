@@ -9,6 +9,7 @@ export interface IUser extends Document {
     originalPassword?: string;
     role: UserRole;
     status: 'ACTIVE' | 'INACTIVE';
+    assignmentStatus: 'ASSIGNED' | 'UNASSIGNED';
     timezone?: string;
     primaryTeamId?: mongoose.Types.ObjectId | null;
     primaryZoneId?: mongoose.Types.ObjectId | null;
