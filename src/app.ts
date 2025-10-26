@@ -61,7 +61,11 @@ const moderateLimiter = createRateLimiter(15 * 60 * 1000, 200); // 200 requests 
 const lenientLimiter = createRateLimiter(15 * 60 * 1000, 500); // 500 requests per 15 minutes
 
 const corsOptions = {
-  origin: ["http://localhost:3000", "http://localhost:3001"],
+  origin: [
+    "http://localhost:3000", 
+    "http://localhost:3001",
+    "https://knockwise-client.vercel.app"
+  ],
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
