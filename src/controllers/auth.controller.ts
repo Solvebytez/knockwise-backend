@@ -123,6 +123,8 @@ export async function login(req: Request, res: Response): Promise<void> {
 
     // 6. Cookie options
     const isProduction = process.env.NODE_ENV === "production";
+    console.log("🌍 NODE_ENV:", process.env.NODE_ENV);
+    console.log("🌍 isProduction:", isProduction);
 
     const cookieOptions = {
       httpOnly: true,
@@ -135,7 +137,7 @@ export async function login(req: Request, res: Response): Promise<void> {
     console.log("🍪 Setting cookies with options:", cookieOptions);
     console.log("🍪 Request origin:", req.headers.origin);
     console.log("🍪 Request host:", req.headers.host);
-    
+
     res.cookie("accessToken", accessToken, {
       ...cookieOptions,
       maxAge: parseTime(env.jwtExpiresIn),
@@ -145,7 +147,7 @@ export async function login(req: Request, res: Response): Promise<void> {
       ...cookieOptions,
       maxAge: env.cookieMaxAge,
     });
-    
+
     console.log("🍪 Cookies set successfully");
 
     // 8. Send response
