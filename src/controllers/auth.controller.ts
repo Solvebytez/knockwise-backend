@@ -132,6 +132,10 @@ export async function login(req: Request, res: Response): Promise<void> {
     };
 
     // 7. Set cookies
+    console.log("🍪 Setting cookies with options:", cookieOptions);
+    console.log("🍪 Request origin:", req.headers.origin);
+    console.log("🍪 Request host:", req.headers.host);
+    
     res.cookie("accessToken", accessToken, {
       ...cookieOptions,
       maxAge: parseTime(env.jwtExpiresIn),
@@ -141,6 +145,8 @@ export async function login(req: Request, res: Response): Promise<void> {
       ...cookieOptions,
       maxAge: env.cookieMaxAge,
     });
+    
+    console.log("🍪 Cookies set successfully");
 
     // 8. Send response
     res.json({
