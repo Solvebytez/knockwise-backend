@@ -14,7 +14,7 @@ export const env = {
   corsOrigin: process.env.CORS_ORIGIN || "*",
   corsOrigins:
     process.env.CORS_ORIGINS ||
-    "http://localhost:3000,http://localhost:3001,https://knockwise-client.vercel.app",
+    "http://localhost:3000,http://localhost:3001,https://knockwise-client.vercel.app,https://myknockpro.com",
   rateLimitWindowMs: parseInt(process.env.RATE_LIMIT_WINDOW || "900000", 10),
   rateLimitMax: parseInt(process.env.RATE_LIMIT_MAX || "200", 10),
   // Cookie configuration

@@ -11,6 +11,7 @@ import { connectDatabase } from "./config/database";
 import { env } from "./config/env";
 import { notFound, errorHandler } from "./middleware/errors";
 import { AuthRequest } from "./middleware/auth";
+import { csrfProtection } from "./middleware/csrf.middleware";
 
 // Import routes
 import authRoutes from "./routes/auth.routes";
@@ -64,14 +65,37 @@ const strictLimiter = createRateLimiter(15 * 60 * 1000, 50); // 50 requests per 
 const moderateLimiter = createRateLimiter(15 * 60 * 1000, 200); // 200 requests per 15 minutes
 const lenientLimiter = createRateLimiter(15 * 60 * 1000, 500); // 500 requests per 15 minutes
 
+const allowedOrigins = env.corsOrigins
+  .split(",")
+  .map((origin) => origin.trim());
+
 const corsOptions = {
-  origin: env.corsOrigins.split(","),
+  origin: (
+    origin: string | undefined,
+    callback: (err: Error | null, allow?: boolean) => void
+  ) => {
+    // Allow requests with no origin (mobile apps, Postman, etc.)
+    if (!origin) {
+      console.log("🔗 CORS: Allowing request with no origin (mobile app)");
+      return callback(null, true);
+    }
+
+    // Check if origin is in allowed list
+    if (allowedOrigins.includes(origin)) {
+      console.log(`🔗 CORS: Allowing origin: ${origin}`);
+      return callback(null, true);
+    }
+
+    // Reject unknown origins
+    console.log(`❌ CORS: Rejecting origin: ${origin}`);
+    callback(new Error("Not allowed by CORS"));
+  },
   credentials: true,
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   allowedHeaders: ["Content-Type", "Authorization", "X-Requested-With"],
 };
 
-console.log("🔗 CORS Origins:", env.corsOrigins.split(","));
+console.log("🔗 CORS Allowed Origins:", allowedOrigins);
 
 // Middleware
 app.use(helmet());
@@ -110,6 +134,9 @@ app.get("/health", (req, res) => {
     uptime: process.uptime(),
   });
 });
+
+// CSRF Protection for all API routes (except auth)
+app.use("/api", csrfProtection);
 
 // API Routes
 app.use("/api/auth", authRoutes);

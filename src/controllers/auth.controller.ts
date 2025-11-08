@@ -8,6 +8,7 @@ import {
   verifyRefreshToken,
 } from "../utils/jwt";
 import { env } from "../config/env";
+import { generateCSRFToken } from "../middleware/csrf.middleware";
 import crypto from "crypto";
 
 function parseTime(text: string): number {
@@ -149,7 +150,18 @@ export async function login(req: Request, res: Response): Promise<void> {
       maxAge: env.cookieMaxAge,
     });
 
+    // Generate and set CSRF token
+    const csrfToken = generateCSRFToken();
+    res.cookie("csrf-token", csrfToken, {
+      httpOnly: false, // Frontend needs to read this
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
+      path: "/",
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    });
+
     console.log("🍪 Cookies set successfully");
+    console.log("🛡️ CSRF token generated and set");
 
     // 8. Send response
     res.json({
@@ -244,29 +256,32 @@ export async function login(req: Request, res: Response): Promise<void> {
 // }
 
 export async function refresh(req: Request, res: Response): Promise<void> {
+  // Support both cookie (web) and body (mobile) for refreshToken
+  const bodyRefreshToken = req.body?.refreshToken;
   const cookieRefreshToken = req.cookies?.refreshToken;
+  const refreshToken = bodyRefreshToken || cookieRefreshToken;
 
-  if (!cookieRefreshToken) {
+  if (!refreshToken) {
     res.status(400).json({ message: "Missing refresh token" });
     return;
   }
 
   try {
     // 1. Verify refresh token
-    const payload = verifyRefreshToken(cookieRefreshToken);
+    const payload = verifyRefreshToken(refreshToken);
     if (!payload) {
       res.status(401).json({ message: "Invalid refresh token" });
       return;
     }
 
     // 2. Validate against DB
-    const hashedCookie = crypto
+    const hashedToken = crypto
       .createHash("sha256")
-      .update(cookieRefreshToken)
+      .update(refreshToken)
       .digest("hex");
 
     const record = await RefreshToken.findOne({
-      token: hashedCookie,
+      token: hashedToken,
       revokedAt: null,
     });
 
@@ -290,9 +305,14 @@ export async function refresh(req: Request, res: Response): Promise<void> {
       role: user.role,
     });
 
+    // 5. Keep existing refresh token (no rotation for now)
+    // If you want token rotation in the future, generate new refresh token here:
+    // const newRefreshToken = signRefreshToken({ sub: payload.sub, role: user.role });
+    // Then update DB and return newRefreshToken instead of refreshToken
+
     const isProduction = process.env.NODE_ENV === "production";
 
-    // 5. Cookie options (important!)
+    // 6. Cookie options (important!)
     const cookieOptions = {
       httpOnly: true,
       secure: isProduction, // only HTTPS in production
@@ -301,10 +321,29 @@ export async function refresh(req: Request, res: Response): Promise<void> {
       maxAge: parseTime(env.jwtExpiresIn),
     } as const;
 
-    // 6. Send new accessToken as cookie
+    // 7. Send new accessToken as cookie (for web)
     res.cookie("accessToken", accessToken, cookieOptions);
 
-    // 7. Return user role and basic info
+    // 8. Set refreshToken cookie (for web) - keep existing or use new if rotating
+    res.cookie("refreshToken", refreshToken, {
+      ...cookieOptions,
+      maxAge: env.cookieMaxAge,
+    });
+
+    // Generate and set new CSRF token
+    const csrfToken = generateCSRFToken();
+    res.cookie("csrf-token", csrfToken, {
+      httpOnly: false, // Frontend needs to read this
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
+      path: "/",
+      maxAge: 24 * 60 * 60 * 1000, // 24 hours
+    });
+
+    console.log("🛡️ CSRF token refreshed");
+    console.log("🔄 Token refresh - Source:", bodyRefreshToken ? "body (mobile)" : "cookie (web)");
+
+    // 9. Return tokens in response body (for mobile apps) + cookies (for web)
     res.json({
       success: true,
       message: "Token refreshed successfully",
@@ -316,6 +355,8 @@ export async function refresh(req: Request, res: Response): Promise<void> {
           role: user.role,
           status: user.status,
         },
+        accessToken, // Return in body for mobile
+        refreshToken: refreshToken, // Return existing refreshToken (or newRefreshToken if rotating)
       },
     });
   } catch (err) {
@@ -324,13 +365,17 @@ export async function refresh(req: Request, res: Response): Promise<void> {
   }
 }
 export async function logout(req: Request, res: Response): Promise<void> {
+  console.log("🚪 Backend logout endpoint called");
+  console.log("🍪 Request cookies:", req.cookies);
+  console.log("📝 Request body:", req.body);
+
   try {
     // Get refresh token from cookies or body
-    const { refreshToken: bodyRefreshToken } = req.body as {
-      refreshToken?: string;
-    };
+    const bodyRefreshToken = req.body?.refreshToken;
     const cookieRefreshToken = req.cookies?.refreshToken;
     const refreshToken = bodyRefreshToken || cookieRefreshToken;
+
+    console.log("🔍 Refresh token found:", !!refreshToken);
 
     if (refreshToken) {
       // Hash the refresh token to match what's stored in DB
@@ -339,16 +384,21 @@ export async function logout(req: Request, res: Response): Promise<void> {
         .update(refreshToken)
         .digest("hex");
 
+      console.log("🔄 Revoking refresh token in database...");
       // Revoke the refresh token
       await RefreshToken.findOneAndUpdate(
         { token: hashedToken },
         { revokedAt: new Date() }
       );
+      console.log("✅ Refresh token revoked successfully");
     }
 
     // Clear cookies with proper options to ensure they're removed
     const isProduction = process.env.NODE_ENV === "production";
+    console.log("🌍 NODE_ENV:", process.env.NODE_ENV);
+    console.log("🌍 isProduction:", isProduction);
 
+    console.log("🍪 Clearing accessToken cookie...");
     res.clearCookie("accessToken", {
       path: "/",
       httpOnly: true,
@@ -356,6 +406,7 @@ export async function logout(req: Request, res: Response): Promise<void> {
       sameSite: isProduction ? "none" : "lax",
     });
 
+    console.log("🍪 Clearing refreshToken cookie...");
     res.clearCookie("refreshToken", {
       path: "/",
       httpOnly: true,
@@ -363,6 +414,15 @@ export async function logout(req: Request, res: Response): Promise<void> {
       sameSite: isProduction ? "none" : "lax",
     });
 
+    console.log("🍪 Clearing csrf-token cookie...");
+    res.clearCookie("csrf-token", {
+      path: "/",
+      httpOnly: false,
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
+    });
+
+    console.log("✅ All cookies cleared, sending response");
     res.json({
       success: true,
       message: "Logged out successfully",
@@ -382,6 +442,13 @@ export async function logout(req: Request, res: Response): Promise<void> {
     res.clearCookie("refreshToken", {
       path: "/",
       httpOnly: true,
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
+    });
+
+    res.clearCookie("csrf-token", {
+      path: "/",
+      httpOnly: false,
       secure: isProduction,
       sameSite: isProduction ? "none" : "lax",
     });
