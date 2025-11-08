@@ -1,4 +1,4 @@
-import { Request, Response } from "express";
+import { Request, Response, CookieOptions } from "express";
 import bcrypt from "bcryptjs";
 import User from "../models/User";
 import RefreshToken from "../models/RefreshToken";
@@ -45,20 +45,25 @@ export async function register(req: Request, res: Response): Promise<void> {
   });
 
   // Set cookies
-  res.cookie("accessToken", accessToken, {
+  const cookieOptions: CookieOptions = {
     httpOnly: env.cookieHttpOnly,
     secure: env.cookieSecure,
     sameSite: env.cookieSameSite,
-    maxAge: parseTime(env.jwtExpiresIn),
     path: "/",
+  };
+
+  if (env.cookieDomain) {
+    cookieOptions.domain = env.cookieDomain;
+  }
+
+  res.cookie("accessToken", accessToken, {
+    ...cookieOptions,
+    maxAge: parseTime(env.jwtExpiresIn),
   });
 
   res.cookie("refreshToken", refreshTokenValue, {
-    httpOnly: env.cookieHttpOnly,
-    secure: env.cookieSecure,
-    sameSite: env.cookieSameSite,
+    ...cookieOptions,
     maxAge: env.cookieMaxAge,
-    path: "/",
   });
 
   // Return both tokens in response body for flexibility
@@ -127,12 +132,16 @@ export async function login(req: Request, res: Response): Promise<void> {
     console.log("🌍 NODE_ENV:", process.env.NODE_ENV);
     console.log("🌍 isProduction:", isProduction);
 
-    const cookieOptions = {
+    const cookieOptions: CookieOptions = {
       httpOnly: true,
       secure: isProduction, // ✅ must be true for HTTPS
-      sameSite: (isProduction ? "none" : "lax") as "lax" | "none", // ✅ allow cross-site cookies on Vercel
+      sameSite: isProduction ? "none" : "lax",
       path: "/",
     };
+
+    if (env.cookieDomain) {
+      cookieOptions.domain = env.cookieDomain;
+    }
 
     // 7. Set cookies
     console.log("🍪 Setting cookies with options:", cookieOptions);
@@ -152,13 +161,19 @@ export async function login(req: Request, res: Response): Promise<void> {
 
     // Generate and set CSRF token
     const csrfToken = generateCSRFToken();
-    res.cookie("csrf-token", csrfToken, {
+    const csrfCookieOptions: CookieOptions = {
       httpOnly: false, // Frontend needs to read this
       secure: isProduction,
       sameSite: isProduction ? "none" : "lax",
       path: "/",
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    });
+    };
+
+    if (env.cookieDomain) {
+      csrfCookieOptions.domain = env.cookieDomain;
+    }
+
+    res.cookie("csrf-token", csrfToken, csrfCookieOptions);
 
     console.log("🍪 Cookies set successfully");
     console.log("🛡️ CSRF token generated and set");
@@ -313,16 +328,22 @@ export async function refresh(req: Request, res: Response): Promise<void> {
     const isProduction = process.env.NODE_ENV === "production";
 
     // 6. Cookie options (important!)
-    const cookieOptions = {
+    const cookieOptions: CookieOptions = {
       httpOnly: true,
       secure: isProduction, // only HTTPS in production
       sameSite: isProduction ? "none" : "lax", // "none" for cross-domain cookies
       path: "/", // allow frontend to access everywhere
-      maxAge: parseTime(env.jwtExpiresIn),
-    } as const;
+    };
+
+    if (env.cookieDomain) {
+      cookieOptions.domain = env.cookieDomain;
+    }
 
     // 7. Send new accessToken as cookie (for web)
-    res.cookie("accessToken", accessToken, cookieOptions);
+    res.cookie("accessToken", accessToken, {
+      ...cookieOptions,
+      maxAge: parseTime(env.jwtExpiresIn),
+    });
 
     // 8. Set refreshToken cookie (for web) - keep existing or use new if rotating
     res.cookie("refreshToken", refreshToken, {
@@ -332,16 +353,25 @@ export async function refresh(req: Request, res: Response): Promise<void> {
 
     // Generate and set new CSRF token
     const csrfToken = generateCSRFToken();
-    res.cookie("csrf-token", csrfToken, {
+    const csrfCookieOptions: CookieOptions = {
       httpOnly: false, // Frontend needs to read this
       secure: isProduction,
       sameSite: isProduction ? "none" : "lax",
       path: "/",
       maxAge: 24 * 60 * 60 * 1000, // 24 hours
-    });
+    };
+
+    if (env.cookieDomain) {
+      csrfCookieOptions.domain = env.cookieDomain;
+    }
+
+    res.cookie("csrf-token", csrfToken, csrfCookieOptions);
 
     console.log("🛡️ CSRF token refreshed");
-    console.log("🔄 Token refresh - Source:", bodyRefreshToken ? "body (mobile)" : "cookie (web)");
+    console.log(
+      "🔄 Token refresh - Source:",
+      bodyRefreshToken ? "body (mobile)" : "cookie (web)"
+    );
 
     // 9. Return tokens in response body (for mobile apps) + cookies (for web)
     res.json({
@@ -369,6 +399,22 @@ export async function logout(req: Request, res: Response): Promise<void> {
   console.log("🍪 Request cookies:", req.cookies);
   console.log("📝 Request body:", req.body);
 
+  const isProduction = process.env.NODE_ENV === "production";
+  const getClearOptions = (httpOnly: boolean): CookieOptions => {
+    const options: CookieOptions = {
+      path: "/",
+      httpOnly,
+      secure: isProduction,
+      sameSite: isProduction ? "none" : "lax",
+    };
+
+    if (env.cookieDomain) {
+      options.domain = env.cookieDomain;
+    }
+
+    return options;
+  };
+
   try {
     // Get refresh token from cookies or body
     const bodyRefreshToken = req.body?.refreshToken;
@@ -394,33 +440,17 @@ export async function logout(req: Request, res: Response): Promise<void> {
     }
 
     // Clear cookies with proper options to ensure they're removed
-    const isProduction = process.env.NODE_ENV === "production";
     console.log("🌍 NODE_ENV:", process.env.NODE_ENV);
     console.log("🌍 isProduction:", isProduction);
 
     console.log("🍪 Clearing accessToken cookie...");
-    res.clearCookie("accessToken", {
-      path: "/",
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: isProduction ? "none" : "lax",
-    });
+    res.clearCookie("accessToken", getClearOptions(true));
 
     console.log("🍪 Clearing refreshToken cookie...");
-    res.clearCookie("refreshToken", {
-      path: "/",
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: isProduction ? "none" : "lax",
-    });
+    res.clearCookie("refreshToken", getClearOptions(true));
 
     console.log("🍪 Clearing csrf-token cookie...");
-    res.clearCookie("csrf-token", {
-      path: "/",
-      httpOnly: false,
-      secure: isProduction,
-      sameSite: isProduction ? "none" : "lax",
-    });
+    res.clearCookie("csrf-token", getClearOptions(false));
 
     console.log("✅ All cookies cleared, sending response");
     res.json({
@@ -429,29 +459,11 @@ export async function logout(req: Request, res: Response): Promise<void> {
     });
   } catch (error) {
     console.error("Logout error:", error);
-    // Even if there's an error, clear cookies
-    const isProduction = process.env.NODE_ENV === "production";
+    res.clearCookie("accessToken", getClearOptions(true));
 
-    res.clearCookie("accessToken", {
-      path: "/",
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: isProduction ? "none" : "lax",
-    });
+    res.clearCookie("refreshToken", getClearOptions(true));
 
-    res.clearCookie("refreshToken", {
-      path: "/",
-      httpOnly: true,
-      secure: isProduction,
-      sameSite: isProduction ? "none" : "lax",
-    });
-
-    res.clearCookie("csrf-token", {
-      path: "/",
-      httpOnly: false,
-      secure: isProduction,
-      sameSite: isProduction ? "none" : "lax",
-    });
+    res.clearCookie("csrf-token", getClearOptions(false));
 
     res.json({
       success: true,
@@ -474,8 +486,13 @@ export async function logoutAll(req: Request, res: Response): Promise<void> {
     }
 
     // Clear cookies
-    res.clearCookie("accessToken", { path: "/" });
-    res.clearCookie("refreshToken", { path: "/" });
+    const clearOptions: CookieOptions = { path: "/" };
+    if (env.cookieDomain) {
+      clearOptions.domain = env.cookieDomain;
+    }
+
+    res.clearCookie("accessToken", clearOptions);
+    res.clearCookie("refreshToken", clearOptions);
 
     res.json({
       success: true,
@@ -484,8 +501,13 @@ export async function logoutAll(req: Request, res: Response): Promise<void> {
   } catch (error) {
     console.error("Logout all error:", error);
     // Even if there's an error, clear cookies
-    res.clearCookie("accessToken", { path: "/" });
-    res.clearCookie("refreshToken", { path: "/" });
+    const clearOptions: CookieOptions = { path: "/" };
+    if (env.cookieDomain) {
+      clearOptions.domain = env.cookieDomain;
+    }
+
+    res.clearCookie("accessToken", clearOptions);
+    res.clearCookie("refreshToken", clearOptions);
 
     res.json({
       success: true,

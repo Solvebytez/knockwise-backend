@@ -26,6 +26,9 @@ export const env = {
       ? "none"
       : ("lax" as "strict" | "lax" | "none"),
   cookieMaxAge: parseInt(process.env.COOKIE_MAX_AGE || "2592000000", 10), // 30 days in milliseconds
+  cookieDomain:
+    process.env.COOKIE_DOMAIN ??
+    (process.env.NODE_ENV === "production" ? ".myknockpro.com" : undefined),
   // Email configuration
   sendgridApiKey: process.env.SENDGRID_API_KEY,
   sendgridFromEmail: process.env.SENDGRID_FROM_EMAIL || "noreply@knockwise.com",
