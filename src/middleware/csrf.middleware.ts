@@ -30,9 +30,13 @@ export function csrfProtection(
   // - Health checks and public endpoints
   const skipPaths = [
     "/auth/login",
+    "/api/auth/login",
     "/auth/register",
+    "/api/auth/register",
     "/auth/refresh",
+    "/api/auth/refresh",
     "/auth/logout",
+    "/api/auth/logout",
     "/health",
     "/api/health",
   ];
