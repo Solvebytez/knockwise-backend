@@ -7,6 +7,7 @@ import {
   getAgentZoneLocation,
   deleteAgentZone,
   checkAgentZoneOverlap,
+  detectAgentZoneBuildings,
 } from "../controllers/agentZone.controller";
 import { requireAuth, requireRoles } from "../middleware/auth";
 import { validate } from "../utils/validator";
@@ -369,6 +370,54 @@ router.post(
   requireAuth,
   requireRoles("AGENT"),
   checkAgentZoneOverlap
+);
+
+/**
+ * @openapi
+ * /api/agent-zones/detect-buildings:
+ *   post:
+ *     summary: Detect buildings inside a polygon (Agent mobile helper)
+ *     tags: [Agent Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [polygon]
+ *             properties:
+ *               polygon:
+ *                 type: array
+ *                 description: Array of coordinates in { latitude, longitude } format
+ *                 items:
+ *                   type: object
+ *                   properties:
+ *                     latitude:
+ *                       type: number
+ *                     longitude:
+ *                       type: number
+ *                 example:
+ *                   - latitude: 43.66512
+ *                     longitude: -79.30983
+ *                   - latitude: 43.66601
+ *                     longitude: -79.30891
+ *                   - latitude: 43.66457
+ *                     longitude: -79.30745
+ *     responses:
+ *       200:
+ *         description: Building detection completed
+ *       400:
+ *         description: Invalid polygon provided
+ *       403:
+ *         description: Access denied - not an agent
+ */
+router.post(
+  "/detect-buildings",
+  requireAuth,
+  requireRoles("AGENT"),
+  detectAgentZoneBuildings
 );
 
 /**

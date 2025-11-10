@@ -19,6 +19,134 @@ import {
   validateZoneBoundary,
 } from "../utils/zoneOverlapChecker";
 import { updateUserAssignmentStatus } from "./assignment.controller";
+import {
+  detectBuildingsWithinPolygon,
+  type PolygonPoint,
+} from "../utils/buildingDetection";
+
+const normalizePolygonInput = (input: any): PolygonPoint[] => {
+  if (!Array.isArray(input)) {
+    return [];
+  }
+
+  const normalized: PolygonPoint[] = [];
+
+  input.forEach((point) => {
+    let latitude: number | undefined;
+    let longitude: number | undefined;
+
+    if (Array.isArray(point) && point.length >= 2) {
+      // Assume GeoJSON order [lng, lat]
+      longitude = Number(point[0]);
+      latitude = Number(point[1]);
+    } else if (point && typeof point === "object") {
+      latitude =
+        typeof point.latitude === "number"
+          ? point.latitude
+          : typeof point.lat === "number"
+          ? point.lat
+          : Array.isArray(point.coordinates) && point.coordinates.length >= 2
+          ? Number(point.coordinates[1])
+          : undefined;
+
+      longitude =
+        typeof point.longitude === "number"
+          ? point.longitude
+          : typeof point.lng === "number"
+          ? point.lng
+          : Array.isArray(point.coordinates) && point.coordinates.length >= 2
+          ? Number(point.coordinates[0])
+          : undefined;
+    }
+
+    if (
+      typeof latitude === "number" &&
+      Number.isFinite(latitude) &&
+      typeof longitude === "number" &&
+      Number.isFinite(longitude)
+    ) {
+      normalized.push({ latitude, longitude });
+    }
+  });
+
+  return normalized;
+};
+
+export const detectAgentZoneBuildings = async (
+  req: AuthRequest,
+  res: Response
+) => {
+  try {
+    console.log("🎯 detectAgentZoneBuildings: incoming request");
+    console.log("🎯 detectAgentZoneBuildings: user id", req.user?.id);
+
+    if (req.user?.role !== "AGENT") {
+      console.warn("⛔ detectAgentZoneBuildings: unauthorized role", req.user?.role);
+      return res.status(403).json({
+        success: false,
+        message: "This endpoint is only available for AGENT users",
+      });
+    }
+
+    const { polygon, boundary } = req.body || {};
+    console.log("🎯 detectAgentZoneBuildings: body received", {
+      hasPolygon: Array.isArray(polygon),
+      hasBoundaryCoordinates: Boolean(boundary?.coordinates),
+    });
+
+    let source: any = polygon;
+    if (!Array.isArray(source) && boundary?.coordinates) {
+      if (
+        Array.isArray(boundary.coordinates[0]) &&
+        Array.isArray(boundary.coordinates[0][0])
+      ) {
+        source = boundary.coordinates[0];
+      }
+    }
+
+    const normalizedPolygon = normalizePolygonInput(source);
+    console.log(
+      "🎯 detectAgentZoneBuildings: normalized polygon length",
+      normalizedPolygon.length
+    );
+
+    if (normalizedPolygon.length < 3) {
+      console.warn(
+        "⚠️ detectAgentZoneBuildings: insufficient polygon points",
+        normalizedPolygon.length
+      );
+      return res.status(400).json({
+        success: false,
+        message:
+          "A polygon with at least three coordinates is required to detect buildings.",
+      });
+    }
+
+    const detection = await detectBuildingsWithinPolygon(normalizedPolygon);
+    console.log(
+      "✅ detectAgentZoneBuildings: detection completed",
+      {
+        buildingCount: detection.buildings.length,
+        warningCount: detection.warnings.length,
+      }
+    );
+
+    return res.status(200).json({
+      success: true,
+      data: detection,
+    });
+  } catch (error) {
+    console.error(
+      "🎯 detectAgentZoneBuildings: Error detecting buildings:",
+      error
+    );
+    return res.status(500).json({
+      success: false,
+      message: "Failed to detect buildings for the provided polygon.",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
 
 /**
  * Create a new zone and auto-assign it to the creating agent

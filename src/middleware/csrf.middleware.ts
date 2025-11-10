@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from "express";
+import { env } from "../config/env";
 
 /**
  * CSRF Protection Middleware
@@ -20,6 +21,9 @@ export function csrfProtection(
   res: Response,
   next: NextFunction
 ): void {
+  console.log("🛡️ CSRF middleware invoked");
+  console.log("🛡️ process.env.NODE_ENV:", process.env.NODE_ENV);
+  console.log("🛡️ env.cookieDomain:", env.cookieDomain);
   // Skip CSRF protection for:
   // - GET requests (read-only operations)
   // - Auth endpoints (login, register, refresh)

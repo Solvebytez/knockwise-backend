@@ -38,6 +38,8 @@ const app = express();
 // Trust proxy for correct IP handling (Render, Vercel, etc.)
 app.set("trust proxy", 1);
 
+console.log("🚀 App starting - process.env.NODE_ENV:", process.env.NODE_ENV);
+
 // Flexible Rate Limiting Configuration
 const createRateLimiter = (
   windowMs: number,
@@ -136,7 +138,15 @@ app.get("/health", (req, res) => {
 });
 
 // CSRF Protection for all API routes (except auth)
-app.use("/api", csrfProtection);
+app.use((req, res, next) => {
+  if (
+    process.env.NODE_ENV !== "development" &&
+    process.env.NODE_ENV !== "test"
+  ) {
+    return csrfProtection(req, res, next);
+  }
+  return next();
+});
 
 // API Routes
 app.use("/api/auth", authRoutes);
