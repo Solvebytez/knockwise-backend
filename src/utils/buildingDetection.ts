@@ -314,26 +314,28 @@ export const detectBuildingsWithinPolygon = async (
     throw new Error("Polygon must contain at least three points");
   }
 
+  console.log("[buildingDetection] Starting detection", {
+    pointCount: polygon.length,
+  });
+
   const warnings: string[] = [];
+  const area = calculatePolygonArea(polygon);
+  const targetCount = Math.max(3, Math.min(25, Math.round(area / 400)));
+  const boundingBox = getBoundingBox(polygon);
+
+  console.log("[buildingDetection] Polygon metrics", {
+    area,
+    targetCount,
+    boundingBox,
+  });
+
+  const detectedBuildings: DetectedBuilding[] = [];
 
   try {
-    console.log("[buildingDetection] Starting detection", {
-      pointCount: polygon.length,
-    });
-    const area = calculatePolygonArea(polygon);
-    const targetCount = Math.max(3, Math.min(25, Math.round(area / 400)));
-    const boundingBox = getBoundingBox(polygon);
-    console.log("[buildingDetection] Polygon metrics", {
-      area,
-      targetCount,
-      boundingBox,
-    });
-
     const osmBuildings = await fetchBuildingsFromOSM(polygon, boundingBox);
     console.log("[buildingDetection] Received candidates", {
       osmCount: osmBuildings.length,
     });
-    const detectedBuildings: DetectedBuilding[] = [];
 
     for (const building of osmBuildings) {
       if (!building) {
@@ -362,48 +364,47 @@ export const detectBuildingsWithinPolygon = async (
         break;
       }
     }
-
-    if (detectedBuildings.length < targetCount) {
-      const missing = targetCount - detectedBuildings.length;
-      console.log("[buildingDetection] Adding simulated buildings", {
-        missing,
-      });
-      for (let i = 0; i < missing; i += 1) {
-        const randomPoint = generateRandomPointInPolygon(polygon, boundingBox);
-        if (!randomPoint) {
-          break;
-        }
-        detectedBuildings.push({
-          id: `sim-${Date.now()}-${i}`,
-          latitude: randomPoint.latitude,
-          longitude: randomPoint.longitude,
-          address: `Simulated building near ${randomPoint.latitude.toFixed(
-            6
-          )}, ${randomPoint.longitude.toFixed(6)}`,
-          source: "simulated",
-        });
-      }
-
-      if (missing > 0) {
-        warnings.push(
-          "Limited real building data available. Added simulated buildings to approximate the area."
-        );
-      }
-    }
-
-    console.log("[buildingDetection] Detection finished", {
-      total: detectedBuildings.length,
-      warnings: warnings.length,
-    });
-    return { buildings: detectedBuildings, warnings };
   } catch (error) {
     console.error(
       "[buildingDetection] Failed to detect buildings:",
       (error as Error)?.message || error
     );
     warnings.push(
-      "Unable to fetch building data right now. You can still save this territory."
+      "Unable to fetch live building data right now. Using simulated points for this area."
     );
-    return { buildings: [], warnings };
   }
+
+  if (detectedBuildings.length < targetCount) {
+    const missing = targetCount - detectedBuildings.length;
+    console.log("[buildingDetection] Adding simulated buildings", {
+      missing,
+    });
+    for (let i = 0; i < missing; i += 1) {
+      const randomPoint = generateRandomPointInPolygon(polygon, boundingBox);
+      if (!randomPoint) {
+        break;
+      }
+      detectedBuildings.push({
+        id: `sim-${Date.now()}-${i}`,
+        latitude: randomPoint.latitude,
+        longitude: randomPoint.longitude,
+        address: `Simulated building near ${randomPoint.latitude.toFixed(
+          6
+        )}, ${randomPoint.longitude.toFixed(6)}`,
+        source: "simulated",
+      });
+    }
+
+    if (missing > 0) {
+      warnings.push(
+        "Limited real building data available. Added simulated buildings to approximate the area."
+      );
+    }
+  }
+
+  console.log("[buildingDetection] Detection finished", {
+    total: detectedBuildings.length,
+    warnings: warnings.length,
+  });
+  return { buildings: detectedBuildings, warnings };
 };
