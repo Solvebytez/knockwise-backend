@@ -6,6 +6,7 @@ import { PropertyData } from "../models/PropertyData";
 import { Zone } from "../models/Zone";
 import { AgentZoneAssignment } from "../models/AgentZoneAssignment";
 import { User, IUser } from "../models/User";
+import Activity from "../models/Activity";
 const { ScheduledAssignment } = require("../models/ScheduledAssignment");
 
 // Helper function to check if point is inside polygon
@@ -144,6 +145,24 @@ export const createResident = async (
       } catch (zoneUpdateError) {
         console.error("⚠️ Error updating zone houseStatuses:", zoneUpdateError);
       }
+    }
+
+    // 7. Create activity record for resident/property creation
+    try {
+      const propertyIdForActivity = populatedResident?.propertyDataId?._id || null;
+      
+      await Activity.create({
+        agentId: currentUserId,
+        activityType: 'PROPERTY_OPERATION',
+        propertyId: propertyIdForActivity,
+        residentId: newResident._id,
+        zoneId: createData.zoneId,
+        operationType: 'CREATE',
+        notes: `Resident/Property created: ${createData.address}`,
+      });
+    } catch (activityError) {
+      console.error('Error creating resident creation activity:', activityError);
+      // Don't fail resident creation if activity creation fails
     }
 
     res.status(201).json({
@@ -593,6 +612,36 @@ export const updateResident = async (req: AuthRequest, res: Response) => {
         // Log error but don't fail the resident update
         console.error("⚠️ Error updating zone houseStatuses:", zoneUpdateError);
       }
+    }
+
+    // 7. Create activity record for resident/property update
+    try {
+      const changes: string[] = [];
+      if (updateData.address && updateData.address !== resident.address) changes.push(`address: "${resident.address}" → "${updateData.address}"`);
+      if (updateData.status && updateData.status !== resident.status) changes.push(`status: "${resident.status}" → "${updateData.status}"`);
+      if (updateData.phone && updateData.phone !== resident.phone) changes.push('phone updated');
+      if (updateData.email && updateData.email !== resident.email) changes.push('email updated');
+      if (updateData.notes && updateData.notes !== resident.notes) changes.push('notes updated');
+      if (updateData.ownerName) changes.push('owner name updated');
+      if (updateData.ownerPhone) changes.push('owner phone updated');
+      if (updateData.ownerEmail) changes.push('owner email updated');
+      if (updateData.ownerMailingAddress) changes.push('owner mailing address updated');
+      
+      // Use propertyId from PropertyData if available, otherwise use resident's zoneId
+      const propertyIdForActivity = updatedResident?.propertyDataId || null;
+      
+      await Activity.create({
+        agentId: currentUserId,
+        activityType: 'PROPERTY_OPERATION',
+        propertyId: propertyIdForActivity,
+        residentId: id,
+        zoneId: resident.zoneId,
+        operationType: 'UPDATE',
+        notes: changes.length > 0 ? `Resident/Property updated: ${changes.join(', ')}` : 'Resident/Property updated',
+      });
+    } catch (activityError) {
+      console.error('Error creating resident update activity:', activityError);
+      // Don't fail resident update if activity creation fails
     }
 
     res.json({

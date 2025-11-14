@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import { AuthRequest } from '../middleware/auth';
 import PropertyData from '../models/PropertyData';
+import Activity from '../models/Activity';
 
 export async function searchProperties(req: AuthRequest, res: Response): Promise<void> {
   const {
@@ -99,12 +100,42 @@ export async function bulkImportProperties(req: AuthRequest, res: Response): Pro
           ...prop,
           lastUpdated: new Date(),
         });
+        
+        // Create activity record for property update
+        try {
+          await Activity.create({
+            agentId: req.user!.id,
+            activityType: 'PROPERTY_OPERATION',
+            propertyId: existing._id,
+            operationType: 'UPDATE',
+            notes: `Property data updated via bulk import`,
+          });
+        } catch (activityError) {
+          console.error('Error creating property update activity:', activityError);
+          // Don't fail property update if activity creation fails
+        }
+        
         results.updated++;
       } else {
-        await PropertyData.create({
+        const newProperty = await PropertyData.create({
           ...prop,
           lastUpdated: new Date(),
         });
+        
+        // Create activity record for property creation
+        try {
+          await Activity.create({
+            agentId: req.user!.id,
+            activityType: 'PROPERTY_OPERATION',
+            propertyId: newProperty._id,
+            operationType: 'CREATE',
+            notes: `Property data created via bulk import`,
+          });
+        } catch (activityError) {
+          console.error('Error creating property creation activity:', activityError);
+          // Don't fail property creation if activity creation fails
+        }
+        
         results.imported++;
       }
     } catch (error) {
@@ -138,6 +169,25 @@ export async function updatePropertyScores(req: AuthRequest, res: Response): Pro
   if (!property) {
     res.status(404).json({ message: 'Property not found' });
     return;
+  }
+
+  // Create activity record for property score update
+  try {
+    const scoreChanges: string[] = [];
+    if (leadScore !== undefined) scoreChanges.push(`leadScore: ${leadScore}`);
+    if (motivationScore !== undefined) scoreChanges.push(`motivationScore: ${motivationScore}`);
+    if (equityScore !== undefined) scoreChanges.push(`equityScore: ${equityScore}`);
+    
+    await Activity.create({
+      agentId: req.user!.id,
+      activityType: 'PROPERTY_OPERATION',
+      propertyId: id,
+      operationType: 'UPDATE',
+      notes: scoreChanges.length > 0 ? `Property scores updated: ${scoreChanges.join(', ')}` : 'Property scores updated',
+    });
+  } catch (activityError) {
+    console.error('Error creating property score update activity:', activityError);
+    // Don't fail property update if activity creation fails
   }
 
   res.json(property);

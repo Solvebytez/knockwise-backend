@@ -293,6 +293,20 @@ export const createZone = async (req: AuthRequest, res: Response) => {
 
     await zone.save();
 
+    // Create activity record for zone creation
+    try {
+      await Activity.create({
+        agentId: req.user!.id,
+        activityType: 'ZONE_OPERATION',
+        zoneId: zone._id,
+        operationType: 'CREATE',
+        notes: `Zone "${name}" created`,
+      });
+    } catch (activityError) {
+      console.error('Error creating zone creation activity:', activityError);
+      // Don't fail zone creation if activity creation fails
+    }
+
     // Handle team assignment if teamId is provided
     if (teamId) {
       console.log("👥 createZone: Team assignment detected, teamId:", teamId);
@@ -2293,6 +2307,29 @@ export const updateZone = async (req: AuthRequest, res: Response) => {
         .populate("teamId", "name")
         .populate("assignedAgentId", "name email");
 
+      // Create activity record for zone update
+      try {
+        const changes: string[] = [];
+        if (name && name !== zone.name) changes.push(`name: "${zone.name}" → "${name}"`);
+        if (description !== undefined && description !== zone.description) changes.push('description updated');
+        if (boundary) changes.push('boundary updated');
+        if (buildingData) changes.push('building data updated');
+        if (status && status !== zone.status) changes.push(`status: "${zone.status}" → "${status}"`);
+        if (assignedAgentId !== undefined) changes.push('agent assignment updated');
+        if (teamId !== undefined) changes.push('team assignment updated');
+        
+        await Activity.create({
+          agentId: req.user!.id,
+          activityType: 'ZONE_OPERATION',
+          zoneId: id,
+          operationType: 'UPDATE',
+          notes: changes.length > 0 ? `Zone updated: ${changes.join(', ')}` : 'Zone updated',
+        });
+      } catch (activityError) {
+        console.error('Error creating zone update activity:', activityError);
+        // Don't fail zone update if activity creation fails
+      }
+
       // 8. Sync all related data and recalculate statuses (same logic as createAssignment)
       console.log("\n🔄 Updating final statuses and relationships...");
       if (assignedAgentId) {
@@ -2729,7 +2766,21 @@ export const deleteZone = async (req: AuthRequest, res: Response) => {
       // Remove from zoneIds array in users
       await User.updateMany({ zoneIds: id }, { $pull: { zoneIds: id } }, {});
 
-      // 9. Finally, delete the zone itself
+      // 9. Create activity record for zone deletion (before deleting the zone)
+      try {
+        await Activity.create({
+          agentId: req.user!.id,
+          activityType: 'ZONE_OPERATION',
+          zoneId: id,
+          operationType: 'DELETE',
+          notes: `Zone "${zone.name}" deleted`,
+        });
+      } catch (activityError) {
+        console.error('Error creating zone deletion activity:', activityError);
+        // Don't fail zone deletion if activity creation fails
+      }
+
+      // 10. Finally, delete the zone itself
       await Zone.findByIdAndDelete(id, {});
 
       console.log("✅ deleteZone: Zone deletion completed successfully");
@@ -4294,6 +4345,27 @@ export const updateZoneUnified = async (req: AuthRequest, res: Response) => {
       // Commit the transaction
       await session.commitTransaction();
       console.log("✅ All updates completed successfully");
+
+      // Create activity record for zone update (after transaction commits)
+      try {
+        const changes: string[] = [];
+        if (name && name !== zone.name) changes.push(`name: "${zone.name}" → "${name}"`);
+        if (description !== undefined && description !== zone.description) changes.push('description updated');
+        if (boundary) changes.push('boundary updated');
+        if (buildingData) changes.push('building data updated');
+        if (residents) changes.push('residents updated');
+        
+        await Activity.create({
+          agentId: req.user!.id,
+          activityType: 'ZONE_OPERATION',
+          zoneId: id,
+          operationType: 'UPDATE',
+          notes: changes.length > 0 ? `Zone updated: ${changes.join(', ')}` : 'Zone updated',
+        });
+      } catch (activityError) {
+        console.error('Error creating zone update activity:', activityError);
+        // Don't fail zone update if activity creation fails
+      }
 
       res.json({
         success: true,

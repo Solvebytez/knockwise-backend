@@ -4,6 +4,7 @@ import Activity, { IActivity, VisitResponse } from "../models/Activity";
 import Property from "../models/Property";
 import Zone from "../models/Zone";
 import User from "../models/User";
+import Lead from "../models/Lead";
 
 export async function createActivity(
   req: AuthRequest,
@@ -18,53 +19,114 @@ export async function createActivity(
       durationSeconds,
       response,
       notes,
+      activityType = 'VISIT', // Default to VISIT for backward compatibility
     } = req.body;
 
-    // Validate property exists
-    const property = await Property.findById(propertyId);
-    if (!property) {
-      res.status(404).json({ success: false, message: "Property not found" });
-      return;
-    }
-
-    // Validate zone if provided
-    if (zoneId) {
-      const zone = await Zone.findById(zoneId);
-      if (!zone) {
-        res.status(404).json({ success: false, message: "Zone not found" });
+    // For VISIT activities, validate property exists
+    if (activityType === 'VISIT') {
+      if (!propertyId) {
+        res.status(400).json({ success: false, message: "propertyId is required for VISIT activities" });
         return;
       }
+
+      const property = await Property.findById(propertyId);
+      if (!property) {
+        res.status(404).json({ success: false, message: "Property not found" });
+        return;
+      }
+
+      // Validate zone if provided
+      if (zoneId) {
+        const zone = await Zone.findById(zoneId);
+        if (!zone) {
+          res.status(404).json({ success: false, message: "Zone not found" });
+          return;
+        }
+      }
+
+      // Calculate duration if not provided
+      let calculatedDuration = durationSeconds;
+      if (!durationSeconds && startedAt && endedAt) {
+        const start = new Date(startedAt);
+        const end = new Date(endedAt);
+        calculatedDuration = Math.floor((end.getTime() - start.getTime()) / 1000);
+      }
+
+      const activity = await Activity.create({
+        agentId: req.user!.sub,
+        activityType: 'VISIT',
+        propertyId,
+        zoneId: zoneId || property.zoneId,
+        startedAt: startedAt || new Date(),
+        endedAt: endedAt || new Date(),
+        durationSeconds: calculatedDuration || 0,
+        response,
+        notes,
+      });
+
+      // Create Lead if response is LEAD_CREATED
+      if (response === 'LEAD_CREATED') {
+        try {
+          // Check if lead already exists for this property
+          const existingLead = await Lead.findOne({ propertyId });
+          if (!existingLead) {
+            await Lead.create({
+              propertyId,
+              zoneId: zoneId || property.zoneId,
+              assignedAgentId: req.user!.sub,
+              status: 'NEW',
+              source: 'DOOR_KNOCK',
+              notes: notes || `Lead created from door-knocking activity`,
+              history: [{
+                at: new Date(),
+                by: req.user!.sub,
+                action: 'CREATED',
+                status: 'NEW',
+                notes: 'Lead created from activity',
+              }],
+              lastActivityAt: new Date(),
+            });
+            console.log('✅ Lead created from activity:', propertyId);
+          } else {
+            // Update existing lead if needed
+            await Lead.findByIdAndUpdate(existingLead._id, {
+              lastActivityAt: new Date(),
+              $push: {
+                history: {
+                  at: new Date(),
+                  by: req.user!.sub,
+                  action: 'ACTIVITY_CREATED',
+                  status: existingLead.status,
+                  notes: 'New activity recorded',
+                },
+              },
+            });
+            console.log('✅ Existing lead updated with new activity:', existingLead._id);
+          }
+        } catch (leadError) {
+          console.error('Error creating/updating lead from activity:', leadError);
+          // Don't fail activity creation if lead creation fails
+        }
+      }
+
+      const populatedActivity = await Activity.findById(activity._id)
+        .populate("propertyId")
+        .populate("zoneId", "name")
+        .populate("agentId", "name email");
+
+      res.status(201).json({
+        success: true,
+        message: "Activity created successfully",
+        data: populatedActivity,
+      });
+    } else {
+      // For ZONE_OPERATION activities (should not be created via this endpoint, but handle gracefully)
+      res.status(400).json({ 
+        success: false, 
+        message: "ZONE_OPERATION activities should be created automatically by zone operations" 
+      });
+      return;
     }
-
-    // Calculate duration if not provided
-    let calculatedDuration = durationSeconds;
-    if (!durationSeconds && startedAt && endedAt) {
-      const start = new Date(startedAt);
-      const end = new Date(endedAt);
-      calculatedDuration = Math.floor((end.getTime() - start.getTime()) / 1000);
-    }
-
-    const activity = await Activity.create({
-      agentId: req.user!.sub,
-      propertyId,
-      zoneId: zoneId || property.zoneId,
-      startedAt: startedAt || new Date(),
-      endedAt: endedAt || new Date(),
-      durationSeconds: calculatedDuration,
-      response,
-      notes,
-    });
-
-    const populatedActivity = await Activity.findById(activity._id)
-      .populate("propertyId")
-      .populate("zoneId", "name")
-      .populate("agentId", "name email");
-
-    res.status(201).json({
-      success: true,
-      message: "Activity created successfully",
-      data: populatedActivity,
-    });
   } catch (error) {
     console.error("Error creating activity:", error);
     res.status(500).json({
@@ -362,15 +424,25 @@ export async function getActivityStatistics(
     }
 
     const activities = await Activity.find(filter);
-    const totalActivities = activities.length;
-    const totalDuration = activities.reduce(
-      (sum, activity) => sum + activity.durationSeconds,
+    // Filter to only VISIT activities for statistics (ZONE_OPERATION activities don't have duration/response)
+    const visitActivities = activities.filter(
+      (activity) => activity.activityType === 'VISIT' && 
+                     activity.durationSeconds !== null && 
+                     activity.durationSeconds !== undefined &&
+                     activity.response &&
+                     activity.startedAt
+    );
+    const totalActivities = visitActivities.length;
+    const totalDuration = visitActivities.reduce(
+      (sum, activity) => sum + (activity.durationSeconds || 0),
       0
     );
 
     // Calculate response statistics
-    const responseStats = activities.reduce((stats, activity) => {
-      stats[activity.response] = (stats[activity.response] || 0) + 1;
+    const responseStats = visitActivities.reduce((stats, activity) => {
+      if (activity.response) {
+        stats[activity.response] = (stats[activity.response] || 0) + 1;
+      }
       return stats;
     }, {} as Record<VisitResponse, number>);
 
@@ -384,22 +456,24 @@ export async function getActivityStatistics(
       }
     > = {};
 
-    activities.forEach((activity) => {
-      const dateString = activity.startedAt.toISOString().split("T")[0];
-      if (dateString) {
-        if (!dailyStats[dateString]) {
-          dailyStats[dateString] = {
-            total: 0,
-            duration: 0,
-            responses: {} as Record<VisitResponse, number>,
-          };
-        }
-        const dayStats = dailyStats[dateString];
-        if (dayStats) {
-          dayStats.total += 1;
-          dayStats.duration += activity.durationSeconds;
-          dayStats.responses[activity.response] =
-            (dayStats.responses[activity.response] || 0) + 1;
+    visitActivities.forEach((activity) => {
+      if (activity.startedAt && activity.response && activity.durationSeconds !== null && activity.durationSeconds !== undefined) {
+        const dateString = activity.startedAt.toISOString().split("T")[0];
+        if (dateString) {
+          if (!dailyStats[dateString]) {
+            dailyStats[dateString] = {
+              total: 0,
+              duration: 0,
+              responses: {} as Record<VisitResponse, number>,
+            };
+          }
+          const dayStats = dailyStats[dateString];
+          if (dayStats) {
+            dayStats.total += 1;
+            dayStats.duration += activity.durationSeconds;
+            dayStats.responses[activity.response] =
+              (dayStats.responses[activity.response] || 0) + 1;
+          }
         }
       }
     });
@@ -454,17 +528,26 @@ export async function getAgentPerformance(
       .populate("zoneId", "name")
       .sort({ startedAt: -1 });
 
-    const totalActivities = activities.length;
-    const totalDuration = activities.reduce(
-      (sum, activity) => sum + activity.durationSeconds,
+    // Filter to only VISIT activities for statistics (ZONE_OPERATION activities don't have duration/response)
+    const visitActivities = activities.filter(
+      (activity) => activity.activityType === 'VISIT' && 
+                     activity.durationSeconds !== null && 
+                     activity.durationSeconds !== undefined &&
+                     activity.response
+    );
+    const totalActivities = visitActivities.length;
+    const totalDuration = visitActivities.reduce(
+      (sum, activity) => sum + (activity.durationSeconds || 0),
       0
     );
     const averageDuration =
       totalActivities > 0 ? Math.round(totalDuration / totalActivities) : 0;
 
     // Calculate response rates
-    const responseStats = activities.reduce((stats, activity) => {
-      stats[activity.response] = (stats[activity.response] || 0) + 1;
+    const responseStats = visitActivities.reduce((stats, activity) => {
+      if (activity.response) {
+        stats[activity.response] = (stats[activity.response] || 0) + 1;
+      }
       return stats;
     }, {} as Record<VisitResponse, number>);
 
