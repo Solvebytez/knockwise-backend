@@ -1475,6 +1475,15 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
       effectiveTo: null,
     }).populate("zoneId", "_id");
 
+    console.log(`📊 getAgentDashboardStats: Found ${activeTerritories.length} active territories`);
+    console.log(`📊 Active territories:`, JSON.stringify(activeTerritories.map((t: any) => ({
+      _id: t._id,
+      agentId: t.agentId,
+      zoneId: t.zoneId,
+      status: t.status,
+      effectiveTo: t.effectiveTo,
+    })), null, 2));
+
     const scheduledTerritoriesToday = await ScheduledAssignment.find({
       $or: [
         { agentId: agent._id },
@@ -1487,16 +1496,44 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
       status: "PENDING",
     }).populate("zoneId", "_id");
 
+    console.log(`📊 getAgentDashboardStats: Found ${scheduledTerritoriesToday.length} scheduled territories for today`);
+
     // Deduplicate territories
     const territoryMap = new Map();
     [...activeTerritories, ...scheduledTerritoriesToday].forEach((item: any) => {
-      const zoneId = item.zoneId?._id?.toString();
+      // Handle both populated and non-populated zoneId
+      let zoneId: string | null = null;
+      if (item.zoneId) {
+        if (typeof item.zoneId === 'object' && item.zoneId._id) {
+          zoneId = item.zoneId._id.toString();
+        } else if (typeof item.zoneId === 'object' && item.zoneId.toString) {
+          zoneId = item.zoneId.toString();
+        } else {
+          zoneId = item.zoneId.toString();
+        }
+      }
+      
+      console.log(`📊 Processing territory item:`, {
+        assignmentId: item._id,
+        zoneId: zoneId,
+        zoneIdType: typeof item.zoneId,
+        zoneIdValue: item.zoneId,
+      });
+      
       if (zoneId && !territoryMap.has(zoneId)) {
         territoryMap.set(zoneId, item.zoneId);
+        console.log(`✅ Added zone ${zoneId} to territoryMap`);
+      } else if (zoneId) {
+        console.log(`⏭️  Zone ${zoneId} already in territoryMap, skipping`);
+      } else {
+        console.log(`⚠️  No zoneId found for assignment ${item._id}`);
       }
     });
 
     const todayTasksCount = territoryMap.size;
+    console.log(`📊 getAgentDashboardStats: todayTasksCount = ${todayTasksCount}`);
+    console.log(`📊 Territory map size: ${territoryMap.size}`);
+    console.log(`📊 Territory map keys:`, Array.from(territoryMap.keys()));
 
     // 2. Calculate Completed Tasks
     // Completed = Territories where agent has completed activities today OR territories with COMPLETED status
