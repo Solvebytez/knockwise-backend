@@ -158,6 +158,7 @@ export const createResident = async (
         residentId: newResident._id,
         zoneId: createData.zoneId,
         operationType: 'CREATE',
+        startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
         notes: `Resident/Property created: ${createData.address}`,
       });
     } catch (activityError) {
@@ -698,6 +699,7 @@ export const updateResident = async (req: AuthRequest, res: Response) => {
         residentId: id,
         zoneId: resident.zoneId,
         operationType: 'UPDATE',
+        startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
         notes: changes.length > 0 ? `Resident/Property updated: ${changes.join(', ')}` : 'Resident/Property updated',
       });
     } catch (activityError) {

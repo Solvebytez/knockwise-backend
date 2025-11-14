@@ -108,6 +108,7 @@ export async function bulkImportProperties(req: AuthRequest, res: Response): Pro
             activityType: 'PROPERTY_OPERATION',
             propertyId: existing._id,
             operationType: 'UPDATE',
+            startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
             notes: `Property data updated via bulk import`,
           });
         } catch (activityError) {
@@ -129,6 +130,7 @@ export async function bulkImportProperties(req: AuthRequest, res: Response): Pro
             activityType: 'PROPERTY_OPERATION',
             propertyId: newProperty._id,
             operationType: 'CREATE',
+            startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
             notes: `Property data created via bulk import`,
           });
         } catch (activityError) {
@@ -183,6 +185,7 @@ export async function updatePropertyScores(req: AuthRequest, res: Response): Pro
       activityType: 'PROPERTY_OPERATION',
       propertyId: id,
       operationType: 'UPDATE',
+      startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
       notes: scoreChanges.length > 0 ? `Property scores updated: ${scoreChanges.join(', ')}` : 'Property scores updated',
     });
   } catch (activityError) {
