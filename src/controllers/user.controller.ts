@@ -1563,11 +1563,20 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
 
     const territoriesCount = zoneMap.size;
 
-    // Calculate performance from territories (visited houses / total houses)
+    // Calculate performance from ACTIVE territories only (visited houses / total houses)
+    // Exclude scheduled territories as they haven't started yet
+    const activeZoneMap = new Map();
+    [...individualZoneAssignments, ...teamZoneAssignments].forEach((item: any) => {
+      const zoneId = item.zoneId?._id?.toString();
+      if (zoneId && !activeZoneMap.has(zoneId)) {
+        activeZoneMap.set(zoneId, item.zoneId);
+      }
+    });
+
     let totalHouses = 0;
     let visitedHouses = 0;
 
-    for (const zoneId of zoneMap.keys()) {
+    for (const zoneId of activeZoneMap.keys()) {
       const total = await Resident.countDocuments({ zoneId: new mongoose.Types.ObjectId(zoneId) });
       const visited = await Resident.countDocuments({
         zoneId: new mongoose.Types.ObjectId(zoneId),
@@ -1601,14 +1610,14 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
       .sort({ priority: -1, createdAt: -1 })
       .limit(10);
 
-    // 7. Get Recent Activities (last 10 activities)
+    // 7. Get Recent Activities (last 10 activities, sorted by when they actually happened)
     const recentActivities = await Activity.find({
       agentId: agent._id,
     })
       .populate("propertyId", "addressLine1 city state")
       .populate("zoneId", "name")
       .populate("agentId", "name email")
-      .sort({ createdAt: -1 })
+      .sort({ startedAt: -1 }) // Sort by when activity actually happened, not when record was created
       .limit(10);
 
     res.json({
