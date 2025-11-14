@@ -1622,8 +1622,8 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
           durationSeconds: activity.durationSeconds,
           response: activity.response,
           notes: activity.notes,
-          createdAt: activity.createdAt,
-          updatedAt: activity.updatedAt,
+          createdAt: (activity as any).createdAt,
+          updatedAt: (activity as any).updatedAt,
         })),
       },
     });
