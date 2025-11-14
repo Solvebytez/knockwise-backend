@@ -712,8 +712,6 @@ export const listZones = async (req: AuthRequest, res: Response) => {
           status: "not-visited",
         });
 
-        const totalResidents = await Resident.countDocuments({ zoneId: zone._id });
-
         if (totalResidents > 0 && notVisitedCount === 0) {
           // All residents have been processed (no "not-visited" remaining)
           calculatedStatus = "COMPLETED";
@@ -4068,7 +4066,8 @@ export const getTerritoryMapView = async (req: AuthRequest, res: Response) => {
     });
 
     // Calculate statistics
-    const totalResidents = residents.length;
+    // Use residents.length for consistency with fetched data (totalResidents from line 4006 is already declared)
+    const totalResidentsCount = residents.length;
     const activeResidents = residents.filter((r) =>
       [
         "interested",
@@ -4086,7 +4085,7 @@ export const getTerritoryMapView = async (req: AuthRequest, res: Response) => {
       description: zone.description,
       boundary: zone.boundary,
       status: calculatedStatus,
-      totalResidents,
+      totalResidents: totalResidentsCount,
       activeResidents,
       assignedTo: currentAssignment
         ? {
@@ -4118,9 +4117,9 @@ export const getTerritoryMapView = async (req: AuthRequest, res: Response) => {
         properties,
         statusSummary,
         statistics: {
-          total: totalResidents,
+          total: totalResidentsCount,
           visited: statusSummary["visited"] || 0,
-          remaining: totalResidents - (statusSummary["visited"] || 0),
+          remaining: totalResidentsCount - (statusSummary["visited"] || 0),
         },
       },
     });
