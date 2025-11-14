@@ -300,6 +300,7 @@ export const createZone = async (req: AuthRequest, res: Response) => {
         activityType: 'ZONE_OPERATION',
         zoneId: zone._id,
         operationType: 'CREATE',
+        startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
         notes: `Zone "${name}" created`,
       });
     } catch (activityError) {
@@ -2300,6 +2301,7 @@ export const updateZone = async (req: AuthRequest, res: Response) => {
           activityType: 'ZONE_OPERATION',
           zoneId: id,
           operationType: 'UPDATE',
+          startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
           notes: changes.length > 0 ? `Zone updated: ${changes.join(', ')}` : 'Zone updated',
         });
       } catch (activityError) {
@@ -2750,6 +2752,7 @@ export const deleteZone = async (req: AuthRequest, res: Response) => {
           activityType: 'ZONE_OPERATION',
           zoneId: id,
           operationType: 'DELETE',
+          startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
           notes: `Zone "${zone.name}" deleted`,
         });
       } catch (activityError) {
@@ -4332,6 +4335,7 @@ export const updateZoneUnified = async (req: AuthRequest, res: Response) => {
           activityType: 'ZONE_OPERATION',
           zoneId: id,
           operationType: 'UPDATE',
+          startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
           notes: changes.length > 0 ? `Zone updated: ${changes.join(', ')}` : 'Zone updated',
         });
       } catch (activityError) {
@@ -4481,6 +4485,22 @@ export const assignZoneLocation = async (req: AuthRequest, res: Response) => {
       await zone.save();
       console.log("✅ Zone location hierarchy updated successfully");
 
+      // Create activity record for zone location update
+      try {
+        await Activity.create({
+          agentId: req.user!.id,
+          activityType: 'ZONE_OPERATION',
+          zoneId: zone._id,
+          operationType: 'UPDATE',
+          startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
+          notes: `Zone location updated: assigned to community "${community.name}"`,
+        });
+        console.log("✅ Activity created for zone location update");
+      } catch (activityError) {
+        console.error('Error creating zone location update activity:', activityError);
+        // Don't fail zone update if activity creation fails
+      }
+
       res.json({
         success: true,
         message: "Zone community assignment updated successfully",
@@ -4519,6 +4539,22 @@ export const assignZoneLocation = async (req: AuthRequest, res: Response) => {
 
       await zone.save();
       console.log("✅ Zone coordinates updated successfully");
+
+      // Create activity record for zone coordinates update
+      try {
+        await Activity.create({
+          agentId: req.user!.id,
+          activityType: 'ZONE_OPERATION',
+          zoneId: zone._id,
+          operationType: 'UPDATE',
+          startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
+          notes: `Zone coordinates updated: ${latitude}, ${longitude}`,
+        });
+        console.log("✅ Activity created for zone coordinates update");
+      } catch (activityError) {
+        console.error('Error creating zone coordinates update activity:', activityError);
+        // Don't fail zone update if activity creation fails
+      }
 
       res.json({
         success: true,
@@ -4697,6 +4733,22 @@ export const updateZoneResidents = async (req: AuthRequest, res: Response) => {
     console.log(
       `✅ Zone residents updated successfully. Created ${createdResidents.length} residents`
     );
+
+    // Create activity record for zone residents update
+    try {
+      await Activity.create({
+        agentId: req.user!.id,
+        activityType: 'ZONE_OPERATION',
+        zoneId: id,
+        operationType: 'UPDATE',
+        startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
+        notes: `Zone residents updated: ${createdResidents.length} residents`,
+      });
+      console.log("✅ Activity created for zone residents update");
+    } catch (activityError) {
+      console.error('Error creating zone residents update activity:', activityError);
+      // Don't fail zone update if activity creation fails
+    }
 
     res.json({
       success: true,

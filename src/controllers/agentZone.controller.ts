@@ -418,6 +418,23 @@ export const createAgentZone = async (req: AuthRequest, res: Response) => {
       );
     }
 
+    // Create activity record for zone creation
+    try {
+      const Activity = require("../models/Activity").default;
+      await Activity.create({
+        agentId: agentId,
+        activityType: 'ZONE_OPERATION',
+        zoneId: zone._id,
+        operationType: 'CREATE',
+        startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
+        notes: `Zone "${name}" created`,
+      });
+      console.log("🎯 createAgentZone: Activity created for zone creation");
+    } catch (activityError) {
+      console.error('🎯 createAgentZone: Error creating zone creation activity:', activityError);
+      // Don't fail zone creation if activity creation fails
+    }
+
     console.log("🎯 createAgentZone: Zone creation completed successfully");
 
     res.status(201).json({
@@ -878,6 +895,30 @@ export const updateAgentZone = async (req: AuthRequest, res: Response) => {
 
     console.log("🎯 updateAgentZone: Zone updated successfully");
 
+    // Create activity record for zone update
+    try {
+      const Activity = require("../models/Activity").default;
+      const changes: string[] = [];
+      if (name && name !== zone.name) changes.push(`name: "${zone.name}" → "${name}"`);
+      if (description !== undefined && description !== zone.description) changes.push('description updated');
+      if (boundary) changes.push('boundary updated');
+      if (buildingData) changes.push('building data updated');
+      if (status && status !== zone.status) changes.push(`status: "${zone.status}" → "${status}"`);
+      
+      await Activity.create({
+        agentId: agentId,
+        activityType: 'ZONE_OPERATION',
+        zoneId: id,
+        operationType: 'UPDATE',
+        startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
+        notes: changes.length > 0 ? `Zone updated: ${changes.join(', ')}` : 'Zone updated',
+      });
+      console.log("🎯 updateAgentZone: Activity created for zone update");
+    } catch (activityError) {
+      console.error('🎯 updateAgentZone: Error creating zone update activity:', activityError);
+      // Don't fail zone update if activity creation fails
+    }
+
     res.json({
       success: true,
       message: "Zone updated successfully",
@@ -1210,6 +1251,23 @@ export const deleteAgentZone = async (req: AuthRequest, res: Response) => {
       $pull: { zoneIds: zone._id },
     });
     console.log(`🎯 deleteAgentZone: Removed zone from agent's zoneIds`);
+
+    // Create activity record for zone deletion (before deleting the zone)
+    try {
+      const Activity = require("../models/Activity").default;
+      await Activity.create({
+        agentId: agentId,
+        activityType: 'ZONE_OPERATION',
+        zoneId: id,
+        operationType: 'DELETE',
+        startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
+        notes: `Zone "${zone.name}" deleted`,
+      });
+      console.log("🎯 deleteAgentZone: Activity created for zone deletion");
+    } catch (activityError) {
+      console.error('🎯 deleteAgentZone: Error creating zone deletion activity:', activityError);
+      // Don't fail zone deletion if activity creation fails
+    }
 
     // Delete the zone
     await Zone.findByIdAndDelete(zone._id);
