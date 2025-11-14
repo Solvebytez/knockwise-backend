@@ -1465,44 +1465,68 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
     tomorrow.setDate(tomorrow.getDate() + 1);
 
     // 1. Calculate Today's Tasks
-    // Tasks = Routes scheduled for today with status PLANNED or IN_PROGRESS
-    const todayRoutes = await Route.find({
-      agentId: agent._id,
-      date: {
+    // Tasks = Active territories assigned to agent + Scheduled territories for today
+    const activeTerritories = await AgentZoneAssignment.find({
+      $or: [
+        { agentId: agent._id },
+        { teamId: { $in: agent.teamIds } },
+      ],
+      status: { $in: ["ACTIVE", "INACTIVE"] },
+      effectiveTo: null,
+    }).populate("zoneId", "_id");
+
+    const scheduledTerritoriesToday = await ScheduledAssignment.find({
+      $or: [
+        { agentId: agent._id },
+        { teamId: { $in: agent.teamIds } },
+      ],
+      scheduledDate: {
         $gte: today,
         $lt: tomorrow,
       },
-      status: { $in: ["PLANNED", "IN_PROGRESS"] },
+      status: "PENDING",
+    }).populate("zoneId", "_id");
+
+    // Deduplicate territories
+    const territoryMap = new Map();
+    [...activeTerritories, ...scheduledTerritoriesToday].forEach((item: any) => {
+      const zoneId = item.zoneId?._id?.toString();
+      if (zoneId && !territoryMap.has(zoneId)) {
+        territoryMap.set(zoneId, item.zoneId);
+      }
     });
 
-    const todayTasksCount = todayRoutes.length;
+    const todayTasksCount = territoryMap.size;
 
     // 2. Calculate Completed Tasks
-    // Completed = Routes with status COMPLETED for today
-    const completedRoutesToday = await Route.countDocuments({
-      agentId: agent._id,
-      date: {
+    // Completed = Territories where agent has completed activities today OR territories with COMPLETED status
+    const completedTerritoriesToday = await AgentZoneAssignment.countDocuments({
+      $or: [
+        { agentId: agent._id },
+        { teamId: { $in: agent.teamIds } },
+      ],
+      status: "COMPLETED",
+      effectiveTo: {
         $gte: today,
         $lt: tomorrow,
       },
-      status: "COMPLETED",
     });
 
-    // Also count activities with successful responses (LEAD_CREATED, APPOINTMENT_SET) for today
-    const successfulActivitiesToday = await Activity.countDocuments({
+    // Count territories where agent has activities today (visited houses)
+    const territoriesWithActivitiesToday = await Activity.distinct("zoneId", {
       agentId: agent._id,
       startedAt: {
         $gte: today,
         $lt: tomorrow,
       },
-      response: { $in: ["LEAD_CREATED", "APPOINTMENT_SET"] },
+      zoneId: { $ne: null },
     });
 
-    // Completed tasks = completed routes OR successful activities (whichever is more relevant)
-    const completedTasksCount = Math.max(completedRoutesToday, successfulActivitiesToday);
+    // Completed tasks = completed territories OR territories with activities today
+    const completedTasksCount = Math.max(completedTerritoriesToday, territoriesWithActivitiesToday.length);
 
     // 3. Calculate Pending Tasks
-    const pendingTasksCount = todayTasksCount - completedRoutesToday;
+    const pendingTasksCount = todayTasksCount - completedTasksCount;
 
     // 4. Get Territories count and Performance
     // Get territories data (reuse existing logic)
