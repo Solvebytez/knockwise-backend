@@ -510,7 +510,28 @@ export const updateResident = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // 3a. Check for duplicates if key fields are being updated
+    // 3a. Validate coordinates if provided
+    if (updateData.coordinates) {
+      const [lng, lat] = updateData.coordinates;
+      // Valid longitude: -180 to 180, Valid latitude: -90 to 90
+      if (
+        typeof lng !== 'number' ||
+        typeof lat !== 'number' ||
+        lng < -180 ||
+        lng > 180 ||
+        lat < -90 ||
+        lat > 90 ||
+        !isFinite(lng) ||
+        !isFinite(lat)
+      ) {
+        console.error("❌ Invalid coordinates provided:", updateData.coordinates);
+        // Remove invalid coordinates from updateData, keep existing coordinates
+        delete updateData.coordinates;
+        console.log("⚠️  Invalid coordinates removed, preserving existing coordinates");
+      }
+    }
+
+    // 3b. Check for duplicates if key fields are being updated
     if (
       updateData.coordinates ||
       updateData.address ||
@@ -614,7 +635,47 @@ export const updateResident = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // 7. Create activity record for resident/property update
+    // 7. Check if this was the last "not-visited" property and mark zone as COMPLETED
+    if (updateData.status && updateData.status !== "not-visited" && resident.status === "not-visited") {
+      try {
+        // Check if there are any remaining "not-visited" properties in this zone
+        const remainingNotVisitedCount = await Resident.countDocuments({
+          zoneId: resident.zoneId,
+          status: "not-visited",
+          _id: { $ne: id }, // Exclude the current property being updated
+        });
+
+        // If this was the last "not-visited" property, mark zone and assignment as COMPLETED
+        if (remainingNotVisitedCount === 0) {
+          console.log(`🎉 Last "not-visited" property updated in zone ${resident.zoneId}. Marking zone as COMPLETED.`);
+
+          // Update Zone status to COMPLETED
+          await Zone.findByIdAndUpdate(resident.zoneId, {
+            status: "COMPLETED",
+          });
+
+          // Update AgentZoneAssignment status to COMPLETED for this zone
+          await AgentZoneAssignment.updateMany(
+            {
+              zoneId: resident.zoneId,
+              status: { $in: ["ACTIVE", "INACTIVE"] },
+              effectiveTo: null,
+            },
+            {
+              status: "COMPLETED",
+              effectiveTo: new Date(),
+            }
+          );
+
+          console.log(`✅ Zone ${resident.zoneId} and assignments marked as COMPLETED`);
+        }
+      } catch (completionError) {
+        console.error("⚠️ Error checking/updating zone completion status:", completionError);
+        // Don't fail resident update if completion check fails
+      }
+    }
+
+    // 8. Create activity record for resident/property update
     try {
       const changes: string[] = [];
       if (updateData.address && updateData.address !== resident.address) changes.push(`address: "${resident.address}" → "${updateData.address}"`);

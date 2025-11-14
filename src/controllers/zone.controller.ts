@@ -703,33 +703,20 @@ export const listZones = async (req: AuthRequest, res: Response) => {
           ? (lastActivity as any).createdAt
           : new Date();
 
-        // Calculate zone status based on assignments and completion
+        // Calculate zone status based on Resident collection (not-visited count)
         let calculatedStatus = "DRAFT"; // Default to DRAFT
 
-        // Check if zone is completed (all houses visited)
-        if (zone.buildingData?.houseStatuses) {
-          const houseStatuses = Array.from(
-            (zone.buildingData.houseStatuses as any).values()
-          );
-          const totalHouses = houseStatuses.length;
-          const visitedHouses = houseStatuses.filter(
-            (house: any) => house.status !== "not-visited"
-          ).length;
+        // Check if zone is completed: no residents with "not-visited" status
+        const notVisitedCount = await Resident.countDocuments({
+          zoneId: zone._id,
+          status: "not-visited",
+        });
 
-          // If all houses have been visited (not 'not-visited'), mark as COMPLETED
-          if (totalHouses > 0 && visitedHouses === totalHouses) {
-            calculatedStatus = "COMPLETED";
-          } else if (currentAssignment) {
-            // Check if it's a scheduled assignment (future date)
-            const assignmentDate = new Date(currentAssignment.effectiveFrom);
-            const now = new Date();
+        const totalResidents = await Resident.countDocuments({ zoneId: zone._id });
 
-            if (assignmentDate > now) {
-              calculatedStatus = "SCHEDULED";
-            } else {
-              calculatedStatus = "ACTIVE";
-            }
-          }
+        if (totalResidents > 0 && notVisitedCount === 0) {
+          // All residents have been processed (no "not-visited" remaining)
+          calculatedStatus = "COMPLETED";
         } else if (currentAssignment) {
           // Check if it's a scheduled assignment (future date)
           const assignmentDate = new Date(currentAssignment.effectiveFrom);
@@ -740,6 +727,9 @@ export const listZones = async (req: AuthRequest, res: Response) => {
           } else {
             calculatedStatus = "ACTIVE";
           }
+        } else if (totalResidents > 0) {
+          // Has residents but some are still "not-visited"
+          calculatedStatus = "ACTIVE";
         }
 
         return {
@@ -998,33 +988,20 @@ export const getZoneById = async (req: AuthRequest, res: Response) => {
       currentAssignment = scheduledAssignment;
     }
 
-    // Calculate zone status based on assignments and completion (same logic as listZones)
+    // Calculate zone status based on Resident collection (not-visited count)
     let calculatedStatus = "DRAFT"; // Default to DRAFT
 
-    // Check if zone is completed (all houses visited)
-    if (zone.buildingData?.houseStatuses) {
-      const houseStatuses = Array.from(
-        (zone.buildingData.houseStatuses as any).values()
-      );
-      const totalHouses = houseStatuses.length;
-      const visitedHouses = houseStatuses.filter(
-        (house: any) => house.status !== "not-visited"
-      ).length;
+    // Check if zone is completed: no residents with "not-visited" status
+    const notVisitedCount = await Resident.countDocuments({
+      zoneId: id,
+      status: "not-visited",
+    });
 
-      // If all houses have been visited (not 'not-visited'), mark as COMPLETED
-      if (totalHouses > 0 && visitedHouses === totalHouses) {
-        calculatedStatus = "COMPLETED";
-      } else if (currentAssignment) {
-        // Check if it's a scheduled assignment (future date)
-        const assignmentDate = new Date(currentAssignment.effectiveFrom);
-        const now = new Date();
+    const totalResidents = await Resident.countDocuments({ zoneId: id });
 
-        if (assignmentDate > now) {
-          calculatedStatus = "SCHEDULED";
-        } else {
-          calculatedStatus = "ACTIVE";
-        }
-      }
+    if (totalResidents > 0 && notVisitedCount === 0) {
+      // All residents have been processed (no "not-visited" remaining)
+      calculatedStatus = "COMPLETED";
     } else if (currentAssignment) {
       // Check if it's a scheduled assignment (future date)
       const assignmentDate = new Date(currentAssignment.effectiveFrom);
@@ -1035,10 +1012,12 @@ export const getZoneById = async (req: AuthRequest, res: Response) => {
       } else {
         calculatedStatus = "ACTIVE";
       }
+    } else if (totalResidents > 0) {
+      // Has residents but some are still "not-visited"
+      calculatedStatus = "ACTIVE";
     }
 
     // Get zone statistics (same as listZones)
-    const totalResidents = await Resident.countDocuments({ zoneId: id });
     const activeResidents = await Resident.countDocuments({
       zoneId: id,
       status: {
@@ -4017,29 +3996,20 @@ export const getTerritoryMapView = async (req: AuthRequest, res: Response) => {
       currentAssignment = scheduledAssignment;
     }
 
-    // Calculate zone status
+    // Calculate zone status based on Resident collection (not-visited count)
     let calculatedStatus = "DRAFT";
-    if (zone.buildingData?.houseStatuses) {
-      const houseStatuses = Array.from(
-        (zone.buildingData.houseStatuses as any).values()
-      );
-      const totalHouses = houseStatuses.length;
-      const visitedHouses = houseStatuses.filter(
-        (house: any) => house.status !== "not-visited"
-      ).length;
 
-      if (totalHouses > 0 && visitedHouses === totalHouses) {
-        calculatedStatus = "COMPLETED";
-      } else if (currentAssignment) {
-        const assignmentDate = new Date(currentAssignment.effectiveFrom);
-        const now = new Date();
+    // Check if zone is completed: no residents with "not-visited" status
+    const notVisitedCount = await Resident.countDocuments({
+      zoneId: id,
+      status: "not-visited",
+    });
 
-        if (assignmentDate > now) {
-          calculatedStatus = "SCHEDULED";
-        } else {
-          calculatedStatus = "ACTIVE";
-        }
-      }
+    const totalResidents = await Resident.countDocuments({ zoneId: id });
+
+    if (totalResidents > 0 && notVisitedCount === 0) {
+      // All residents have been processed (no "not-visited" remaining)
+      calculatedStatus = "COMPLETED";
     } else if (currentAssignment) {
       const assignmentDate = new Date(currentAssignment.effectiveFrom);
       const now = new Date();
@@ -4049,6 +4019,9 @@ export const getTerritoryMapView = async (req: AuthRequest, res: Response) => {
       } else {
         calculatedStatus = "ACTIVE";
       }
+    } else if (totalResidents > 0) {
+      // Has residents but some are still "not-visited"
+      calculatedStatus = "ACTIVE";
     }
 
     // Get all residents for this zone

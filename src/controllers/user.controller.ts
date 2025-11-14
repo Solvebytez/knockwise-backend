@@ -1329,11 +1329,19 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
           status: "not-interested",
         });
 
+        // Calculate zone status: COMPLETED if no residents with "not-visited" status
+        let calculatedStatus = zone.status; // Default to stored status
+        if (totalHouses > 0 && notVisitedCount === 0) {
+          calculatedStatus = "COMPLETED";
+        } else if (totalHouses > 0 && notVisitedCount > 0) {
+          calculatedStatus = "ACTIVE";
+        }
+
         return {
           _id: zone._id,
           name: zone.name,
           description: zone.description,
-          status: zone.status,
+          status: calculatedStatus, // Use calculated status instead of stored status
           createdBy: zone.createdBy, // Add createdBy field for ownership check
           assignmentType: item.assignmentType,
           isScheduled: item.isScheduled,
@@ -1475,15 +1483,6 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
       effectiveTo: null,
     }).populate("zoneId", "_id");
 
-    console.log(`📊 getAgentDashboardStats: Found ${activeTerritories.length} active territories`);
-    console.log(`📊 Active territories:`, JSON.stringify(activeTerritories.map((t: any) => ({
-      _id: t._id,
-      agentId: t.agentId,
-      zoneId: t.zoneId,
-      status: t.status,
-      effectiveTo: t.effectiveTo,
-    })), null, 2));
-
     const scheduledTerritoriesToday = await ScheduledAssignment.find({
       $or: [
         { agentId: agent._id },
@@ -1495,8 +1494,6 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
       },
       status: "PENDING",
     }).populate("zoneId", "_id");
-
-    console.log(`📊 getAgentDashboardStats: Found ${scheduledTerritoriesToday.length} scheduled territories for today`);
 
     // Deduplicate territories
     const territoryMap = new Map();
@@ -1513,31 +1510,17 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
         }
       }
       
-      console.log(`📊 Processing territory item:`, {
-        assignmentId: item._id,
-        zoneId: zoneId,
-        zoneIdType: typeof item.zoneId,
-        zoneIdValue: item.zoneId,
-      });
-      
       if (zoneId && !territoryMap.has(zoneId)) {
         territoryMap.set(zoneId, item.zoneId);
-        console.log(`✅ Added zone ${zoneId} to territoryMap`);
-      } else if (zoneId) {
-        console.log(`⏭️  Zone ${zoneId} already in territoryMap, skipping`);
-      } else {
-        console.log(`⚠️  No zoneId found for assignment ${item._id}`);
       }
     });
 
     const todayTasksCount = territoryMap.size;
-    console.log(`📊 getAgentDashboardStats: todayTasksCount = ${todayTasksCount}`);
-    console.log(`📊 Territory map size: ${territoryMap.size}`);
-    console.log(`📊 Territory map keys:`, Array.from(territoryMap.keys()));
 
     // 2. Calculate Completed Tasks
     // Completed = Territories where agent has completed activities today OR territories with COMPLETED status
-    const completedTerritoriesToday = await AgentZoneAssignment.countDocuments({
+    // Get territories marked as COMPLETED today
+    const completedTerritoriesAssignments = await AgentZoneAssignment.find({
       $or: [
         { agentId: agent._id },
         { teamId: { $in: agent.teamIds } },
@@ -1547,20 +1530,49 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
         $gte: today,
         $lt: tomorrow,
       },
-    });
+    }).populate("zoneId", "_id");
 
-    // Count territories where agent has activities today (visited houses)
-    const territoriesWithActivitiesToday = await Activity.distinct("zoneId", {
+    // Get territories where agent has VISIT activities today (door-knocking)
+    // Only VISIT activities count as completed tasks, not property status updates
+    const territoriesWithVisitActivitiesToday = await Activity.distinct("zoneId", {
       agentId: agent._id,
       startedAt: {
         $gte: today,
         $lt: tomorrow,
       },
       zoneId: { $ne: null },
+      activityType: "VISIT",
     });
 
-    // Completed tasks = completed territories OR territories with activities today
-    const completedTasksCount = Math.max(completedTerritoriesToday, territoriesWithActivitiesToday.length);
+    // Combine and deduplicate: territories that are either COMPLETED OR have VISIT activities today
+    const completedZoneIds = new Set<string>();
+    
+    // Add zones from COMPLETED assignments
+    completedTerritoriesAssignments.forEach((assignment: any) => {
+      let zoneId: string | null = null;
+      if (assignment.zoneId) {
+        if (typeof assignment.zoneId === 'object' && assignment.zoneId._id) {
+          zoneId = assignment.zoneId._id.toString();
+        } else if (typeof assignment.zoneId === 'object' && assignment.zoneId.toString) {
+          zoneId = assignment.zoneId.toString();
+        } else {
+          zoneId = assignment.zoneId.toString();
+        }
+      }
+      if (zoneId) {
+        completedZoneIds.add(zoneId);
+      }
+    });
+
+    // Add zones from VISIT activities (convert ObjectIds to strings)
+    territoriesWithVisitActivitiesToday.forEach((zoneId: any) => {
+      if (zoneId) {
+        const zoneIdStr = zoneId.toString ? zoneId.toString() : String(zoneId);
+        completedZoneIds.add(zoneIdStr);
+      }
+    });
+
+    const completedTasksCount = completedZoneIds.size;
 
     // 3. Calculate Pending Tasks
     const pendingTasksCount = todayTasksCount - completedTasksCount;
