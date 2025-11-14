@@ -6,6 +6,8 @@ import { Resident } from "../models/Resident";
 import { AgentZoneAssignment } from "../models/AgentZoneAssignment";
 import { AgentTeamAssignment } from "../models/AgentTeamAssignment";
 import { ScheduledAssignment } from "../models/ScheduledAssignment";
+import Route from "../models/Route";
+import Activity from "../models/Activity";
 import { AuthRequest } from "../middleware/auth";
 import bcrypt from "bcryptjs";
 import mongoose from "mongoose";
@@ -1430,6 +1432,206 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
     res.status(500).json({
       success: false,
       message: "Failed to fetch territories",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+// Get agent dashboard stats (Agent only)
+export const getAgentDashboardStats = async (req: AuthRequest, res: Response) => {
+  try {
+    const agentId = req.user?.sub;
+
+    if (!agentId) {
+      return res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+    }
+
+    // Get agent information
+    const agent = await User.findById(agentId);
+    if (!agent || agent.role !== "AGENT") {
+      return res.status(404).json({
+        success: false,
+        message: "Agent not found",
+      });
+    }
+
+    // Get today's date range (start and end of today)
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+
+    // 1. Calculate Today's Tasks
+    // Tasks = Routes scheduled for today with status PLANNED or IN_PROGRESS
+    const todayRoutes = await Route.find({
+      agentId: agent._id,
+      date: {
+        $gte: today,
+        $lt: tomorrow,
+      },
+      status: { $in: ["PLANNED", "IN_PROGRESS"] },
+    });
+
+    const todayTasksCount = todayRoutes.length;
+
+    // 2. Calculate Completed Tasks
+    // Completed = Routes with status COMPLETED for today
+    const completedRoutesToday = await Route.countDocuments({
+      agentId: agent._id,
+      date: {
+        $gte: today,
+        $lt: tomorrow,
+      },
+      status: "COMPLETED",
+    });
+
+    // Also count activities with successful responses (LEAD_CREATED, APPOINTMENT_SET) for today
+    const successfulActivitiesToday = await Activity.countDocuments({
+      agentId: agent._id,
+      startedAt: {
+        $gte: today,
+        $lt: tomorrow,
+      },
+      response: { $in: ["LEAD_CREATED", "APPOINTMENT_SET"] },
+    });
+
+    // Completed tasks = completed routes OR successful activities (whichever is more relevant)
+    const completedTasksCount = Math.max(completedRoutesToday, successfulActivitiesToday);
+
+    // 3. Calculate Pending Tasks
+    const pendingTasksCount = todayTasksCount - completedRoutesToday;
+
+    // 4. Get Territories count and Performance
+    // Get territories data (reuse existing logic)
+    const individualZoneAssignments = await AgentZoneAssignment.find({
+      agentId: agent._id,
+      status: { $nin: ["COMPLETED", "CANCELLED"] },
+      effectiveTo: null,
+    }).populate("zoneId", "_id");
+
+    const teamZoneAssignments = await AgentZoneAssignment.find({
+      teamId: { $in: agent.teamIds },
+      status: { $nin: ["COMPLETED", "CANCELLED"] },
+      effectiveTo: null,
+    }).populate("zoneId", "_id");
+
+    const pendingIndividualScheduled = await ScheduledAssignment.find({
+      agentId: agent._id,
+      status: "PENDING",
+    }).populate("zoneId", "_id");
+
+    const pendingTeamScheduled = await ScheduledAssignment.find({
+      teamId: { $in: agent.teamIds },
+      status: "PENDING",
+    }).populate("zoneId", "_id");
+
+    // Deduplicate zones
+    const zoneMap = new Map();
+    [...individualZoneAssignments, ...teamZoneAssignments, ...pendingIndividualScheduled, ...pendingTeamScheduled].forEach((item: any) => {
+      const zoneId = item.zoneId?._id?.toString();
+      if (zoneId && !zoneMap.has(zoneId)) {
+        zoneMap.set(zoneId, item.zoneId);
+      }
+    });
+
+    const territoriesCount = zoneMap.size;
+
+    // Calculate performance from territories (visited houses / total houses)
+    let totalHouses = 0;
+    let visitedHouses = 0;
+
+    for (const zoneId of zoneMap.keys()) {
+      const total = await Resident.countDocuments({ zoneId: new mongoose.Types.ObjectId(zoneId) });
+      const visited = await Resident.countDocuments({
+        zoneId: new mongoose.Types.ObjectId(zoneId),
+        status: {
+          $in: ["visited", "interested", "callback", "appointment", "follow-up"],
+        },
+      });
+      totalHouses += total;
+      visitedHouses += visited;
+    }
+
+    const performance = totalHouses > 0 ? Math.round((visitedHouses / totalHouses) * 100) : 0;
+
+    // 5. Calculate Total Routes (all active routes, not just today)
+    const totalRoutesCount = await Route.countDocuments({
+      agentId: agent._id,
+      status: { $nin: ["CANCELLED", "ARCHIVED"] },
+    });
+
+    // 6. Get Today's Schedule (routes for today with PLANNED/IN_PROGRESS status)
+    const todaySchedule = await Route.find({
+      agentId: agent._id,
+      date: {
+        $gte: today,
+        $lt: tomorrow,
+      },
+      status: { $in: ["PLANNED", "IN_PROGRESS"] },
+    })
+      .populate("zoneId", "name")
+      .populate("teamId", "name")
+      .sort({ priority: -1, createdAt: -1 })
+      .limit(10);
+
+    // 7. Get Recent Activities (last 10 activities)
+    const recentActivities = await Activity.find({
+      agentId: agent._id,
+    })
+      .populate("propertyId", "addressLine1 city state")
+      .populate("zoneId", "name")
+      .populate("agentId", "name email")
+      .sort({ createdAt: -1 })
+      .limit(10);
+
+    res.json({
+      success: true,
+      data: {
+        stats: {
+          todayTasks: todayTasksCount,
+          completedTasks: completedTasksCount,
+          pendingTasks: pendingTasksCount,
+          performance,
+          territories: territoriesCount,
+          routes: totalRoutesCount,
+        },
+        todaySchedule: todaySchedule.map((route) => ({
+          _id: route._id,
+          name: route.name,
+          zoneId: route.zoneId,
+          teamId: route.teamId,
+          date: route.date,
+          status: route.status,
+          priority: route.priority,
+          stops: route.stops,
+          totalDuration: route.totalDuration,
+          totalDistance: route.totalDistance,
+          optimizationSettings: route.optimizationSettings,
+          analytics: route.analytics,
+        })),
+        recentActivities: recentActivities.map((activity) => ({
+          _id: activity._id,
+          agentId: activity.agentId,
+          propertyId: activity.propertyId,
+          zoneId: activity.zoneId,
+          startedAt: activity.startedAt,
+          endedAt: activity.endedAt,
+          durationSeconds: activity.durationSeconds,
+          response: activity.response,
+          notes: activity.notes,
+          createdAt: activity.createdAt,
+          updatedAt: activity.updatedAt,
+        })),
+      },
+    });
+  } catch (error) {
+    console.error("❌ getAgentDashboardStats: Error fetching dashboard stats:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch dashboard stats",
       error: error instanceof Error ? error.message : "Unknown error",
     });
   }

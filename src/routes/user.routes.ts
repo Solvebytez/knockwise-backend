@@ -12,6 +12,7 @@ import {
   updateMyProfile,
   getMyZoneInfo,
   getMyTerritories,
+  getAgentDashboardStats,
   getSystemAnalytics,
   getTeamPerformance,
   getMyCreatedAgents,
@@ -1470,6 +1471,62 @@ router.get("/my-zone-info", requireRoles("AGENT"), getMyZoneInfo);
  *                   example: "Agent not found"
  */
 router.get("/my-territories", requireRoles("AGENT"), getMyTerritories);
+
+/**
+ * @openapi
+ * /api/users/dashboard-stats:
+ *   get:
+ *     summary: Get agent dashboard statistics (Agent only)
+ *     tags: [Users]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Agent dashboard statistics including stats, schedule, and activities
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     stats:
+ *                       type: object
+ *                       properties:
+ *                         todayTasks:
+ *                           type: number
+ *                           example: 5
+ *                         completedTasks:
+ *                           type: number
+ *                           example: 3
+ *                         pendingTasks:
+ *                           type: number
+ *                           example: 2
+ *                         performance:
+ *                           type: number
+ *                           example: 85
+ *                         territories:
+ *                           type: number
+ *                           example: 3
+ *                         routes:
+ *                           type: number
+ *                           example: 12
+ *                     todaySchedule:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *                     recentActivities:
+ *                       type: array
+ *                       items:
+ *                         type: object
+ *       404:
+ *         description: Agent not found
+ */
+router.get("/dashboard-stats", requireRoles("AGENT"), getAgentDashboardStats);
 
 /**
  * @openapi
