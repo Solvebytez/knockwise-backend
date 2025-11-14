@@ -1472,50 +1472,18 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    // 1. Calculate Today's Tasks
-    // Tasks = Active territories assigned to agent + Scheduled territories for today
-    const activeTerritories = await AgentZoneAssignment.find({
-      $or: [
-        { agentId: agent._id },
-        { teamId: { $in: agent.teamIds } },
-      ],
-      status: { $in: ["ACTIVE", "INACTIVE"] },
-      effectiveTo: null,
-    }).populate("zoneId", "_id");
-
-    const scheduledTerritoriesToday = await ScheduledAssignment.find({
-      $or: [
-        { agentId: agent._id },
-        { teamId: { $in: agent.teamIds } },
-      ],
-      scheduledDate: {
+    // 1. Calculate Total Activities Today
+    // Count all activities (VISIT + PROPERTY_OPERATION + ZONE_OPERATION) done today
+    const totalActivitiesToday = await Activity.countDocuments({
+      agentId: agent._id,
+      startedAt: {
         $gte: today,
         $lt: tomorrow,
       },
-      status: "PENDING",
-    }).populate("zoneId", "_id");
-
-    // Deduplicate territories
-    const territoryMap = new Map();
-    [...activeTerritories, ...scheduledTerritoriesToday].forEach((item: any) => {
-      // Handle both populated and non-populated zoneId
-      let zoneId: string | null = null;
-      if (item.zoneId) {
-        if (typeof item.zoneId === 'object' && item.zoneId._id) {
-          zoneId = item.zoneId._id.toString();
-        } else if (typeof item.zoneId === 'object' && item.zoneId.toString) {
-          zoneId = item.zoneId.toString();
-        } else {
-          zoneId = item.zoneId.toString();
-        }
-      }
-      
-      if (zoneId && !territoryMap.has(zoneId)) {
-        territoryMap.set(zoneId, item.zoneId);
-      }
     });
 
-    const todayTasksCount = territoryMap.size;
+    // For backward compatibility, keep todayTasksCount name but use activities count
+    const todayTasksCount = totalActivitiesToday;
 
     // 2. Calculate Completed Tasks
     // Completed = Territories where agent has completed activities today OR territories with COMPLETED status
@@ -1659,7 +1627,28 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
       .sort({ priority: -1, createdAt: -1 })
       .limit(10);
 
-    // 7. Get Recent Activities (last 10 activities, sorted by when they actually happened)
+    // 7. Calculate Total Visits Today (VISIT activities only)
+    const totalVisitsToday = await Activity.countDocuments({
+      agentId: agent._id,
+      activityType: "VISIT",
+      startedAt: {
+        $gte: today,
+        $lt: tomorrow,
+      },
+    });
+
+    // 8. Calculate Leads Created Today
+    const leadsCreatedToday = await Activity.countDocuments({
+      agentId: agent._id,
+      activityType: "VISIT",
+      response: "LEAD_CREATED",
+      startedAt: {
+        $gte: today,
+        $lt: tomorrow,
+      },
+    });
+
+    // 9. Get Recent Activities (last 10 activities, sorted by when they actually happened)
     const recentActivities = await Activity.find({
       agentId: agent._id,
     })
@@ -1679,6 +1668,8 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
           performance,
           territories: territoriesCount,
           routes: totalRoutesCount,
+          totalVisitsToday,
+          leadsCreatedToday,
         },
         todaySchedule: todaySchedule.map((route) => ({
           _id: route._id,
