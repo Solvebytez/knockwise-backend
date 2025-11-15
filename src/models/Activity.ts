@@ -8,9 +8,10 @@ export type VisitResponse =
   | 'FOLLOW_UP'
   | 'LEAD_CREATED';
 
-export type ActivityType = 'VISIT' | 'ZONE_OPERATION' | 'PROPERTY_OPERATION';
+export type ActivityType = 'VISIT' | 'ZONE_OPERATION' | 'PROPERTY_OPERATION' | 'ROUTE_OPERATION';
 export type ZoneOperationType = 'CREATE' | 'UPDATE' | 'DELETE';
 export type PropertyOperationType = 'CREATE' | 'UPDATE' | 'DELETE';
+export type RouteOperationType = 'CREATE' | 'UPDATE' | 'DELETE';
 
 export interface IActivity extends Document {
   agentId: mongoose.Types.ObjectId;
@@ -21,7 +22,7 @@ export interface IActivity extends Document {
   endedAt?: Date; // Optional for zone operations
   durationSeconds?: number; // Optional for zone operations
   response?: VisitResponse; // Optional for zone/property operations
-  operationType?: ZoneOperationType | PropertyOperationType; // For zone/property operations
+  operationType?: ZoneOperationType | PropertyOperationType | RouteOperationType; // For zone/property/route operations
   residentId?: mongoose.Types.ObjectId | null; // For property/resident operations
   notes?: string;
 }
@@ -31,7 +32,7 @@ const ActivitySchema = new Schema<IActivity>(
     agentId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
     activityType: {
       type: String,
-      enum: ['VISIT', 'ZONE_OPERATION', 'PROPERTY_OPERATION'],
+      enum: ['VISIT', 'ZONE_OPERATION', 'PROPERTY_OPERATION', 'ROUTE_OPERATION'],
       required: true,
       default: 'VISIT',
       index: true,
@@ -91,6 +92,12 @@ ActivitySchema.pre('validate', function(next) {
     }
     if (!this.operationType) {
       return next(new Error('operationType is required for PROPERTY_OPERATION activities'));
+    }
+  }
+  
+  if (this.activityType === 'ROUTE_OPERATION') {
+    if (!this.operationType) {
+      return next(new Error('operationType is required for ROUTE_OPERATION activities'));
     }
   }
   

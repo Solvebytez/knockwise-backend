@@ -4,6 +4,7 @@ import { AuthRequest } from "../middleware/auth";
 import Route from "../models/Route";
 import PropertyData from "../models/PropertyData";
 import User from "../models/User";
+import Activity from "../models/Activity";
 
 export async function createRoute(
   req: AuthRequest,
@@ -26,6 +27,22 @@ export async function createRoute(
     };
 
     const route = await Route.create(routeData);
+    
+    // Create activity record for route creation
+    try {
+      await Activity.create({
+        agentId: req.user!.sub,
+        activityType: 'ROUTE_OPERATION',
+        zoneId: route.zoneId || null,
+        operationType: 'CREATE',
+        startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
+        notes: `Route "${route.name}" created`,
+      });
+    } catch (activityError) {
+      console.error('Error creating route creation activity:', activityError);
+      // Don't fail route creation if activity creation fails
+    }
+    
     res.status(201).json(route);
   } catch (error) {
     res.status(500).json({
@@ -137,6 +154,21 @@ export async function optimizeRoute(
       },
     });
 
+    // Create activity record for route creation (optimize route)
+    try {
+      await Activity.create({
+        agentId: req.user!.sub,
+        activityType: 'ROUTE_OPERATION',
+        zoneId: route.zoneId || null,
+        operationType: 'CREATE',
+        startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
+        notes: `Optimized route "${route.name}" created`,
+      });
+    } catch (activityError) {
+      console.error('Error creating route optimization activity:', activityError);
+      // Don't fail route creation if activity creation fails
+    }
+
     res.status(201).json(route);
   } catch (error) {
     res.status(500).json({
@@ -242,6 +274,21 @@ export async function updateRoute(
       return;
     }
 
+    // Create activity record for route update
+    try {
+      await Activity.create({
+        agentId: req.user!.sub,
+        activityType: 'ROUTE_OPERATION',
+        zoneId: route.zoneId || null,
+        operationType: 'UPDATE',
+        startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
+        notes: `Route "${route.name}" updated`,
+      });
+    } catch (activityError) {
+      console.error('Error creating route update activity:', activityError);
+      // Don't fail route update if activity creation fails
+    }
+
     res.json(route);
   } catch (error) {
     res.status(500).json({
@@ -257,11 +304,33 @@ export async function deleteRoute(
 ): Promise<void> {
   try {
     const { id } = req.params;
-    const route = await Route.findByIdAndDelete(id);
+    const route = await Route.findById(id);
 
     if (!route) {
       res.status(404).json({ message: "Route not found" });
       return;
+    }
+
+    // Store route info before deletion for activity
+    const routeName = route.name;
+    const routeZoneId = route.zoneId;
+
+    // Delete the route
+    await Route.findByIdAndDelete(id);
+
+    // Create activity record for route deletion (before deleting the route)
+    try {
+      await Activity.create({
+        agentId: req.user!.sub,
+        activityType: 'ROUTE_OPERATION',
+        zoneId: routeZoneId || null,
+        operationType: 'DELETE',
+        startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
+        notes: `Route "${routeName}" deleted`,
+      });
+    } catch (activityError) {
+      console.error('Error creating route deletion activity:', activityError);
+      // Don't fail route deletion if activity creation fails
     }
 
     res.json({ message: "Route deleted successfully" });
@@ -422,6 +491,21 @@ export async function duplicateRoute(
       createdAt: new Date(),
       updatedAt: new Date(),
     });
+
+    // Create activity record for route duplication (creates a new route)
+    try {
+      await Activity.create({
+        agentId: req.user!.sub,
+        activityType: 'ROUTE_OPERATION',
+        zoneId: duplicatedRoute.zoneId || null,
+        operationType: 'CREATE',
+        startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
+        notes: `Route "${duplicatedRoute.name}" duplicated from "${originalRoute.name}"`,
+      });
+    } catch (activityError) {
+      console.error('Error creating route duplication activity:', activityError);
+      // Don't fail route duplication if activity creation fails
+    }
 
     res.status(201).json(duplicatedRoute);
   } catch (error) {
@@ -630,6 +714,21 @@ export async function createTemplate(
         completionRate: 0,
       },
     });
+
+    // Create activity record for template creation (creates a route)
+    try {
+      await Activity.create({
+        agentId: req.user!.sub,
+        activityType: 'ROUTE_OPERATION',
+        zoneId: template.zoneId || null,
+        operationType: 'CREATE',
+        startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
+        notes: `Route template "${name}" created`,
+      });
+    } catch (activityError) {
+      console.error('Error creating route template activity:', activityError);
+      // Don't fail template creation if activity creation fails
+    }
 
     res.status(201).json(template);
   } catch (error) {
