@@ -1648,7 +1648,22 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
       },
     });
 
-    // 9. Get Recent Activities (last 10 activities, sorted by when they actually happened)
+    // 9. Calculate Total Properties in Zones Created by Current User
+    // Find all zones created by the current user
+    const zonesCreatedByUser = await Zone.find({
+      createdBy: agent._id,
+    }).select("_id");
+
+    const zoneIdsCreatedByUser = zonesCreatedByUser.map((zone) => zone._id);
+
+    // Count all residents/properties in those zones
+    const totalPropertiesInCreatedZones = zoneIdsCreatedByUser.length > 0
+      ? await Resident.countDocuments({
+          zoneId: { $in: zoneIdsCreatedByUser },
+        })
+      : 0;
+
+    // 10. Get Recent Activities (last 10 activities, sorted by when they actually happened)
     const recentActivities = await Activity.find({
       agentId: agent._id,
     })
@@ -1670,6 +1685,7 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
           routes: totalRoutesCount,
           totalVisitsToday,
           leadsCreatedToday,
+          totalPropertiesInCreatedZones,
         },
         todaySchedule: todaySchedule.map((route) => ({
           _id: route._id,
