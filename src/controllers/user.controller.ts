@@ -1483,7 +1483,7 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
       today: today.toISOString(),
       tomorrow: tomorrow.toISOString(),
       yesterday: yesterday.toISOString(),
-      agentId: agent._id.toString(),
+      agentId: (agent._id as any).toString(),
     });
 
     // 1. Calculate Total Activities Today
