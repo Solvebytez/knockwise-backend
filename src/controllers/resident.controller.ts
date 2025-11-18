@@ -692,16 +692,83 @@ export const updateResident = async (req: AuthRequest, res: Response) => {
       // Use propertyId from PropertyData if available, otherwise use resident's zoneId
       const propertyIdForActivity = updatedResident?.propertyDataId || null;
       
-      await Activity.create({
-        agentId: currentUserId,
-        activityType: 'PROPERTY_OPERATION',
-        propertyId: propertyIdForActivity,
-        residentId: id,
-        zoneId: resident.zoneId,
-        operationType: 'UPDATE',
-        startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
-        notes: changes.length > 0 ? `Resident/Property updated: ${changes.join(', ')}` : 'Resident/Property updated',
-      });
+      // Check if status changed to a visit-related status
+      const visitStatuses = ['visited', 'interested', 'callback', 'appointment', 'follow-up'];
+      const isStatusChangeToVisit = updateData.status && 
+                                    updateData.status !== resident.status && 
+                                    visitStatuses.includes(updateData.status) &&
+                                    !visitStatuses.includes(resident.status);
+      
+      if (isStatusChangeToVisit) {
+        // Create VISIT activity when status changes to a visit-related status
+        const visitResponseMap: Record<string, string> = {
+          'visited': 'NO_ANSWER', // Default response for visited
+          'interested': 'LEAD_CREATED',
+          'callback': 'CALL_BACK',
+          'appointment': 'APPOINTMENT_SET',
+          'follow-up': 'FOLLOW_UP',
+        };
+        
+        const visitResponse = visitResponseMap[updateData.status] || 'NO_ANSWER';
+        // Always use current date for startedAt to ensure it counts as "today" in dashboard
+        // Use lastVisited only for display purposes, but startedAt should be now for accurate counting
+        const visitStartedAt = new Date();
+        const visitEndedAt = new Date(visitStartedAt.getTime() + (5 * 60 * 1000)); // Default 5 minutes duration
+        
+        const visitActivityData = {
+          agentId: currentUserId,
+          activityType: 'VISIT',
+          propertyId: propertyIdForActivity,
+          residentId: id,
+          zoneId: resident.zoneId,
+          startedAt: visitStartedAt,
+          endedAt: visitEndedAt,
+          durationSeconds: Math.floor((visitEndedAt.getTime() - visitStartedAt.getTime()) / 1000),
+          response: visitResponse,
+          notes: `Visit recorded: Status changed to "${updateData.status}"`,
+        };
+        
+        console.log("📝 Creating VISIT activity from status change:", {
+          agentId: currentUserId,
+          zoneId: resident.zoneId?.toString(),
+          zoneName: (resident.zoneId as any)?.name || "Unknown",
+          status: updateData.status,
+          response: visitResponse,
+          startedAt: visitActivityData.startedAt.toISOString(),
+        });
+        
+        const createdVisitActivity = await Activity.create(visitActivityData);
+        console.log("✅ VISIT activity created:", {
+          activityId: createdVisitActivity._id,
+          startedAt: createdVisitActivity.startedAt?.toISOString(),
+        });
+      } else {
+        // Create PROPERTY_OPERATION activity for other updates
+        const activityData = {
+          agentId: currentUserId,
+          activityType: 'PROPERTY_OPERATION',
+          propertyId: propertyIdForActivity,
+          residentId: id,
+          zoneId: resident.zoneId,
+          operationType: 'UPDATE',
+          startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
+          notes: changes.length > 0 ? `Resident/Property updated: ${changes.join(', ')}` : 'Resident/Property updated',
+        };
+        
+        console.log("📝 Creating PROPERTY_OPERATION activity:", {
+          agentId: currentUserId,
+          zoneId: resident.zoneId?.toString(),
+          zoneName: (resident.zoneId as any)?.name || "Unknown",
+          startedAt: activityData.startedAt.toISOString(),
+          changes: changes,
+        });
+        
+        const createdActivity = await Activity.create(activityData);
+        console.log("✅ PROPERTY_OPERATION activity created:", {
+          activityId: createdActivity._id,
+          startedAt: createdActivity.startedAt?.toISOString(),
+        });
+      }
     } catch (activityError) {
       console.error('Error creating resident update activity:', activityError);
       // Don't fail resident update if activity creation fails

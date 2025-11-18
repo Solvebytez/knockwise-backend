@@ -1467,17 +1467,27 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
     }
 
     // Get today's date range (start and end of today)
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Use UTC to avoid timezone issues
+    const now = new Date();
+    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
     const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
 
     // Get yesterday's date range (start and end of yesterday)
     const yesterday = new Date(today);
-    yesterday.setDate(yesterday.getDate() - 1);
+    yesterday.setUTCDate(yesterday.getUTCDate() - 1);
+
+    // Debug logging
+    console.log("📊 Dashboard Stats - Date Range:", {
+      now: now.toISOString(),
+      today: today.toISOString(),
+      tomorrow: tomorrow.toISOString(),
+      yesterday: yesterday.toISOString(),
+      agentId: agent._id.toString(),
+    });
 
     // 1. Calculate Total Activities Today
-    // Count all activities (VISIT + PROPERTY_OPERATION + ZONE_OPERATION) done today
+    // Count all activities (VISIT + PROPERTY_OPERATION + ZONE_OPERATION + ROUTE_OPERATION) done today
     const totalActivitiesToday = await Activity.countDocuments({
       agentId: agent._id,
       startedAt: {
@@ -1485,6 +1495,26 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
         $lt: tomorrow,
       },
     });
+    
+    // Debug: Check activities by type
+    const activitiesByType = await Activity.aggregate([
+      {
+        $match: {
+          agentId: agent._id,
+          startedAt: {
+            $gte: today,
+            $lt: tomorrow,
+          },
+        },
+      },
+      {
+        $group: {
+          _id: "$activityType",
+          count: { $sum: 1 },
+        },
+      },
+    ]);
+    console.log("📊 Dashboard Stats - Activities by Type Today:", activitiesByType);
 
     // For backward compatibility, keep todayTasksCount name but use activities count
     const todayTasksCount = totalActivitiesToday;
@@ -1662,6 +1692,30 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
       },
     });
 
+    // 8a. Calculate Completed Visits Today (successful outcomes)
+    // Completed = visits with LEAD_CREATED, APPOINTMENT_SET, or FOLLOW_UP
+    const completedVisitsToday = await Activity.countDocuments({
+      agentId: agent._id,
+      activityType: "VISIT",
+      response: { $in: ["LEAD_CREATED", "APPOINTMENT_SET", "FOLLOW_UP"] },
+      startedAt: {
+        $gte: today,
+        $lt: tomorrow,
+      },
+    });
+
+    // 8b. Calculate Pending Visits Today (needs follow-up or negative outcomes)
+    // Pending = visits with NO_ANSWER, NOT_INTERESTED, or CALL_BACK
+    const pendingVisitsToday = await Activity.countDocuments({
+      agentId: agent._id,
+      activityType: "VISIT",
+      response: { $in: ["NO_ANSWER", "NOT_INTERESTED", "CALL_BACK"] },
+      startedAt: {
+        $gte: today,
+        $lt: tomorrow,
+      },
+    });
+
     // 9. Calculate Total Properties in Zones Created by Current User
     // Find all zones created by the current user
     const zonesCreatedByUser = await Zone.find({
@@ -1701,6 +1755,8 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
           totalVisitsToday,
           totalVisitsYesterday,
           leadsCreatedToday,
+          completedVisitsToday,
+          pendingVisitsToday,
           totalPropertiesInCreatedZones,
           totalZonesCreatedByUser,
         },
