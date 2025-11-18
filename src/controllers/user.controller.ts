@@ -1472,6 +1472,10 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
+    // Get yesterday's date range (start and end of yesterday)
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
     // 1. Calculate Total Activities Today
     // Count all activities (VISIT + PROPERTY_OPERATION + ZONE_OPERATION) done today
     const totalActivitiesToday = await Activity.countDocuments({
@@ -1637,6 +1641,16 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
       },
     });
 
+    // 7a. Calculate Total Visits Yesterday (VISIT activities only)
+    const totalVisitsYesterday = await Activity.countDocuments({
+      agentId: agent._id,
+      activityType: "VISIT",
+      startedAt: {
+        $gte: yesterday,
+        $lt: today,
+      },
+    });
+
     // 8. Calculate Leads Created Today
     const leadsCreatedToday = await Activity.countDocuments({
       agentId: agent._id,
@@ -1684,6 +1698,7 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
           territories: territoriesCount,
           routes: totalRoutesCount,
           totalVisitsToday,
+          totalVisitsYesterday,
           leadsCreatedToday,
           totalPropertiesInCreatedZones,
         },
