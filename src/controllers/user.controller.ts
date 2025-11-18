@@ -1680,6 +1680,17 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
         $lt: today,
       },
     });
+    
+    // Debug: Log Performance card data
+    console.log("📊 Performance Card Data:", {
+      yesterday: totalVisitsYesterday,
+      today: totalVisitsToday,
+      change: totalVisitsToday - totalVisitsYesterday,
+      percentageChange: totalVisitsYesterday > 0 
+        ? Math.round(((totalVisitsToday - totalVisitsYesterday) / totalVisitsYesterday) * 100)
+        : totalVisitsToday > 0 ? 100 : 0,
+      isPositive: totalVisitsToday >= totalVisitsYesterday,
+    });
 
     // 8. Calculate Leads Created Today
     const leadsCreatedToday = await Activity.countDocuments({

@@ -692,21 +692,22 @@ export const updateResident = async (req: AuthRequest, res: Response) => {
       // Use propertyId from PropertyData if available, otherwise use resident's zoneId
       const propertyIdForActivity = updatedResident?.propertyDataId || null;
       
-      // Check if status changed to a visit-related status
-      const visitStatuses = ['visited', 'interested', 'callback', 'appointment', 'follow-up'];
+      // Check if status changed to any non-"not-visited" status
+      // Any status change to a non-"not-visited" status should create a VISIT activity
+      // (because agent is working on the property)
       const isStatusChangeToVisit = updateData.status && 
                                     updateData.status !== resident.status && 
-                                    visitStatuses.includes(updateData.status) &&
-                                    !visitStatuses.includes(resident.status);
+                                    updateData.status !== 'not-visited';
       
       if (isStatusChangeToVisit) {
-        // Create VISIT activity when status changes to a visit-related status
+        // Create VISIT activity when status changes to any non-"not-visited" status
         const visitResponseMap: Record<string, string> = {
           'visited': 'NO_ANSWER', // Default response for visited
           'interested': 'LEAD_CREATED',
           'callback': 'CALL_BACK',
           'appointment': 'APPOINTMENT_SET',
           'follow-up': 'FOLLOW_UP',
+          'not-interested': 'NOT_INTERESTED',
         };
         
         const visitResponse = visitResponseMap[updateData.status] || 'NO_ANSWER';
