@@ -1669,6 +1669,7 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
     }).select("_id");
 
     const zoneIdsCreatedByUser = zonesCreatedByUser.map((zone) => zone._id);
+    const totalZonesCreatedByUser = zonesCreatedByUser.length;
 
     // Count all residents/properties in those zones
     const totalPropertiesInCreatedZones = zoneIdsCreatedByUser.length > 0
@@ -1701,6 +1702,7 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
           totalVisitsYesterday,
           leadsCreatedToday,
           totalPropertiesInCreatedZones,
+          totalZonesCreatedByUser,
         },
         todaySchedule: todaySchedule.map((route) => ({
           _id: route._id,
