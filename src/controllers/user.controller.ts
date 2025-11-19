@@ -1124,7 +1124,7 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
     }).populate({
       path: "zoneId",
       select:
-        "name description status createdBy areaId municipalityId communityId",
+        "name description status createdBy areaId municipalityId communityId createdAt updatedAt",
       populate: [
         {
           path: "areaId",
@@ -1154,7 +1154,7 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
       .populate({
         path: "zoneId",
         select:
-          "name description status createdBy areaId municipalityId communityId",
+          "name description status createdBy areaId municipalityId communityId createdAt updatedAt",
         populate: [
           {
             path: "areaId",
@@ -1186,7 +1186,7 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
       }).populate({
         path: "zoneId",
         select:
-          "name description status createdBy areaId municipalityId communityId",
+          "name description status createdBy areaId municipalityId communityId createdAt updatedAt",
         populate: [
           {
             path: "areaId",
@@ -1215,7 +1215,7 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
       .populate({
         path: "zoneId",
         select:
-          "name description status createdBy areaId municipalityId communityId",
+          "name description status createdBy areaId municipalityId communityId createdAt updatedAt",
         populate: [
           {
             path: "areaId",
@@ -1410,8 +1410,30 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
       0
     );
 
+    // Sort territories by most recently updated/created first (regardless of primary status)
+    territories.sort((a, b) => {
+      // Use updatedAt if available, otherwise fall back to createdAt
+      const dateA = a.updatedAt || a.createdAt;
+      const dateB = b.updatedAt || b.createdAt;
+      
+      // Handle missing dates - put them at the end
+      if (!dateA && !dateB) return 0;
+      if (!dateA) return 1; // Put items without date at the end
+      if (!dateB) return -1;
+      
+      const timeA = new Date(dateA).getTime();
+      const timeB = new Date(dateB).getTime();
+      
+      // Handle invalid dates
+      if (isNaN(timeA) || isNaN(timeB)) return 0;
+      
+      // Sort by most recent first (descending order)
+      // This ensures recently created/updated territories appear at the top
+      return timeB - timeA;
+    });
+
     console.log(
-      `✅ getMyTerritories: Returning ${territories.length} territories`
+      `✅ getMyTerritories: Returning ${territories.length} territories (sorted by most recent first)`
     );
     console.log(
       `📊 getMyTerritories: Stats - Active: ${activeTerritories}, Scheduled: ${scheduledTerritories}, Total Houses: ${totalHousesAcrossAll}`
