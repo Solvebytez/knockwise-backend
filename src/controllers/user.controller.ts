@@ -1143,6 +1143,16 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
     console.log(
       `📋 getMyTerritories: Found ${individualZoneAssignments.length} individual assignments`
     );
+    console.log(
+      "📋 getMyTerritories: Individual assignments details:",
+      individualZoneAssignments.map((a: any) => ({
+        assignmentId: a._id,
+        zoneId: a.zoneId?._id,
+        zoneName: a.zoneId?.name,
+        zoneType: a.zoneId?.zoneType,
+        status: a.status,
+      }))
+    );
 
     // 2. Get all team zone assignments for this agent's teams
     console.log(`🔍 getMyTerritories: Fetching team assignments...`);
@@ -1271,8 +1281,15 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
     // Create a map to deduplicate zones by zoneId
     const zoneMap = new Map();
 
+    console.log("📋 getMyTerritories: Processing assignments, total:", allAssignments.length);
     allAssignments.forEach((item) => {
-      const zoneId = item.assignment.zoneId._id.toString();
+      const zone = item.assignment.zoneId;
+      if (!zone || !zone._id) {
+        console.log("📋 getMyTerritories: WARNING - Assignment with missing zone:", item.assignment._id);
+        return;
+      }
+      const zoneId = zone._id.toString();
+      console.log(`📋 getMyTerritories: Processing assignment for zone ${zoneId} (${zone.name}) - zoneType: ${zone.zoneType}`);
 
       // If zone not in map or current assignment is not scheduled (prefer active over scheduled)
       if (
@@ -1280,17 +1297,39 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
         (!item.isScheduled && zoneMap.get(zoneId).isScheduled)
       ) {
         zoneMap.set(zoneId, item);
+        console.log(`📋 getMyTerritories: Added zone ${zoneId} to map`);
+      } else {
+        console.log(`📋 getMyTerritories: Skipped zone ${zoneId} (already in map or scheduled)`);
       }
     });
 
     console.log(
       `📋 getMyTerritories: Unique territories after deduplication: ${zoneMap.size}`
     );
+    console.log(
+      "📋 getMyTerritories: Zones in map:",
+      Array.from(zoneMap.keys()).map((zoneId) => {
+        const item = zoneMap.get(zoneId);
+        return {
+          zoneId,
+          zoneName: item.assignment.zoneId?.name,
+          zoneType: item.assignment.zoneId?.zoneType,
+        };
+      })
+    );
 
     // Build territory data with statistics
+    console.log(
+      "📋 getMyTerritories: Building territories from",
+      zoneMap.size,
+      "zones"
+    );
     const territories = await Promise.all(
       Array.from(zoneMap.values()).map(async (item) => {
         const zone = item.assignment.zoneId;
+        console.log(
+          `📋 getMyTerritories: Processing zone "${zone.name}" - zoneType: ${zone.zoneType}, _id: ${zone._id}`
+        );
         const isPrimary =
           zone._id.toString() === agent.primaryZoneId?.toString();
 
@@ -1337,7 +1376,7 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
           calculatedStatus = "ACTIVE";
         }
 
-        return {
+        const territoryData = {
           _id: zone._id,
           name: zone.name,
           description: zone.description,
@@ -1355,6 +1394,7 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
           scheduledDate: item.isScheduled
             ? (item.assignment as any).scheduledDate
             : null,
+          zoneType: zone.zoneType || "MAP", // Include zoneType in response
           statistics: {
             totalHouses,
             visitedCount,
@@ -1388,6 +1428,10 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
           municipalityId: zone.municipalityId,
           communityId: zone.communityId,
         };
+        console.log(
+          `📋 getMyTerritories: Territory "${territoryData.name}" - zoneType: ${territoryData.zoneType}`
+        );
+        return territoryData;
       })
     );
 
@@ -1415,18 +1459,18 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
       // Use updatedAt if available, otherwise fall back to createdAt
       const dateA = a.updatedAt || a.createdAt;
       const dateB = b.updatedAt || b.createdAt;
-      
+
       // Handle missing dates - put them at the end
       if (!dateA && !dateB) return 0;
       if (!dateA) return 1; // Put items without date at the end
       if (!dateB) return -1;
-      
+
       const timeA = new Date(dateA).getTime();
       const timeB = new Date(dateB).getTime();
-      
+
       // Handle invalid dates
       if (isNaN(timeA) || isNaN(timeB)) return 0;
-      
+
       // Sort by most recent first (descending order)
       // This ensures recently created/updated territories appear at the top
       return timeB - timeA;
@@ -1437,6 +1481,14 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
     );
     console.log(
       `📊 getMyTerritories: Stats - Active: ${activeTerritories}, Scheduled: ${scheduledTerritories}, Total Houses: ${totalHousesAcrossAll}`
+    );
+    console.log(
+      "📋 getMyTerritories: Territories zoneTypes:",
+      territories.map((t: any) => ({
+        name: t.name,
+        zoneType: t.zoneType,
+        _id: t._id?.toString(),
+      }))
     );
 
     res.json({
@@ -1468,7 +1520,10 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
 };
 
 // Get agent dashboard stats (Agent only)
-export const getAgentDashboardStats = async (req: AuthRequest, res: Response) => {
+export const getAgentDashboardStats = async (
+  req: AuthRequest,
+  res: Response
+) => {
   try {
     const agentId = req.user?.sub;
 
@@ -1491,7 +1546,17 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
     // Get today's date range (start and end of today)
     // Use UTC to avoid timezone issues
     const now = new Date();
-    const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+    const today = new Date(
+      Date.UTC(
+        now.getUTCFullYear(),
+        now.getUTCMonth(),
+        now.getUTCDate(),
+        0,
+        0,
+        0,
+        0
+      )
+    );
     const tomorrow = new Date(today);
     tomorrow.setUTCDate(tomorrow.getUTCDate() + 1);
 
@@ -1517,7 +1582,7 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
         $lt: tomorrow,
       },
     });
-    
+
     // Debug: Check activities by type
     const activitiesByType = await Activity.aggregate([
       {
@@ -1536,7 +1601,10 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
         },
       },
     ]);
-    console.log("📊 Dashboard Stats - Activities by Type Today:", activitiesByType);
+    console.log(
+      "📊 Dashboard Stats - Activities by Type Today:",
+      activitiesByType
+    );
 
     // For backward compatibility, keep todayTasksCount name but use activities count
     const todayTasksCount = totalActivitiesToday;
@@ -1545,10 +1613,7 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
     // Completed = Territories where agent has completed activities today OR territories with COMPLETED status
     // Get territories marked as COMPLETED today
     const completedTerritoriesAssignments = await AgentZoneAssignment.find({
-      $or: [
-        { agentId: agent._id },
-        { teamId: { $in: agent.teamIds } },
-      ],
+      $or: [{ agentId: agent._id }, { teamId: { $in: agent.teamIds } }],
       status: "COMPLETED",
       effectiveTo: {
         $gte: today,
@@ -1558,26 +1623,32 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
 
     // Get territories where agent has VISIT activities today (door-knocking)
     // Only VISIT activities count as completed tasks, not property status updates
-    const territoriesWithVisitActivitiesToday = await Activity.distinct("zoneId", {
-      agentId: agent._id,
-      startedAt: {
-        $gte: today,
-        $lt: tomorrow,
-      },
-      zoneId: { $ne: null },
-      activityType: "VISIT",
-    });
+    const territoriesWithVisitActivitiesToday = await Activity.distinct(
+      "zoneId",
+      {
+        agentId: agent._id,
+        startedAt: {
+          $gte: today,
+          $lt: tomorrow,
+        },
+        zoneId: { $ne: null },
+        activityType: "VISIT",
+      }
+    );
 
     // Combine and deduplicate: territories that are either COMPLETED OR have VISIT activities today
     const completedZoneIds = new Set<string>();
-    
+
     // Add zones from COMPLETED assignments
     completedTerritoriesAssignments.forEach((assignment: any) => {
       let zoneId: string | null = null;
       if (assignment.zoneId) {
-        if (typeof assignment.zoneId === 'object' && assignment.zoneId._id) {
+        if (typeof assignment.zoneId === "object" && assignment.zoneId._id) {
           zoneId = assignment.zoneId._id.toString();
-        } else if (typeof assignment.zoneId === 'object' && assignment.zoneId.toString) {
+        } else if (
+          typeof assignment.zoneId === "object" &&
+          assignment.zoneId.toString
+        ) {
           zoneId = assignment.zoneId.toString();
         } else {
           zoneId = assignment.zoneId.toString();
@@ -1627,7 +1698,12 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
 
     // Deduplicate zones
     const zoneMap = new Map();
-    [...individualZoneAssignments, ...teamZoneAssignments, ...pendingIndividualScheduled, ...pendingTeamScheduled].forEach((item: any) => {
+    [
+      ...individualZoneAssignments,
+      ...teamZoneAssignments,
+      ...pendingIndividualScheduled,
+      ...pendingTeamScheduled,
+    ].forEach((item: any) => {
       const zoneId = item.zoneId?._id?.toString();
       if (zoneId && !zoneMap.has(zoneId)) {
         zoneMap.set(zoneId, item.zoneId);
@@ -1639,29 +1715,40 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
     // Calculate performance from ACTIVE territories only (visited houses / total houses)
     // Exclude scheduled territories as they haven't started yet
     const activeZoneMap = new Map();
-    [...individualZoneAssignments, ...teamZoneAssignments].forEach((item: any) => {
-      const zoneId = item.zoneId?._id?.toString();
-      if (zoneId && !activeZoneMap.has(zoneId)) {
-        activeZoneMap.set(zoneId, item.zoneId);
+    [...individualZoneAssignments, ...teamZoneAssignments].forEach(
+      (item: any) => {
+        const zoneId = item.zoneId?._id?.toString();
+        if (zoneId && !activeZoneMap.has(zoneId)) {
+          activeZoneMap.set(zoneId, item.zoneId);
+        }
       }
-    });
+    );
 
     let totalHouses = 0;
     let visitedHouses = 0;
 
     for (const zoneId of activeZoneMap.keys()) {
-      const total = await Resident.countDocuments({ zoneId: new mongoose.Types.ObjectId(zoneId) });
+      const total = await Resident.countDocuments({
+        zoneId: new mongoose.Types.ObjectId(zoneId),
+      });
       const visited = await Resident.countDocuments({
         zoneId: new mongoose.Types.ObjectId(zoneId),
         status: {
-          $in: ["visited", "interested", "callback", "appointment", "follow-up"],
+          $in: [
+            "visited",
+            "interested",
+            "callback",
+            "appointment",
+            "follow-up",
+          ],
         },
       });
       totalHouses += total;
       visitedHouses += visited;
     }
 
-    const performance = totalHouses > 0 ? Math.round((visitedHouses / totalHouses) * 100) : 0;
+    const performance =
+      totalHouses > 0 ? Math.round((visitedHouses / totalHouses) * 100) : 0;
 
     // 5. Calculate Total Routes (all active routes, not just today)
     const totalRoutesCount = await Route.countDocuments({
@@ -1702,15 +1789,22 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
         $lt: today,
       },
     });
-    
+
     // Debug: Log Performance card data
     console.log("📊 Performance Card Data:", {
       yesterday: totalVisitsYesterday,
       today: totalVisitsToday,
       change: totalVisitsToday - totalVisitsYesterday,
-      percentageChange: totalVisitsYesterday > 0 
-        ? Math.round(((totalVisitsToday - totalVisitsYesterday) / totalVisitsYesterday) * 100)
-        : totalVisitsToday > 0 ? 100 : 0,
+      percentageChange:
+        totalVisitsYesterday > 0
+          ? Math.round(
+              ((totalVisitsToday - totalVisitsYesterday) /
+                totalVisitsYesterday) *
+                100
+            )
+          : totalVisitsToday > 0
+          ? 100
+          : 0,
       isPositive: totalVisitsToday >= totalVisitsYesterday,
     });
 
@@ -1759,11 +1853,12 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
     const totalZonesCreatedByUser = zonesCreatedByUser.length;
 
     // Count all residents/properties in those zones
-    const totalPropertiesInCreatedZones = zoneIdsCreatedByUser.length > 0
-      ? await Resident.countDocuments({
-          zoneId: { $in: zoneIdsCreatedByUser },
-        })
-      : 0;
+    const totalPropertiesInCreatedZones =
+      zoneIdsCreatedByUser.length > 0
+        ? await Resident.countDocuments({
+            zoneId: { $in: zoneIdsCreatedByUser },
+          })
+        : 0;
 
     // 10. Get Recent Activities (last 10 activities, sorted by when they actually happened)
     const recentActivities = await Activity.find({
@@ -1826,7 +1921,10 @@ export const getAgentDashboardStats = async (req: AuthRequest, res: Response) =>
       },
     });
   } catch (error) {
-    console.error("❌ getAgentDashboardStats: Error fetching dashboard stats:", error);
+    console.error(
+      "❌ getAgentDashboardStats: Error fetching dashboard stats:",
+      error
+    );
     res.status(500).json({
       success: false,
       message: "Failed to fetch dashboard stats",

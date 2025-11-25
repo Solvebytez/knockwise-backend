@@ -577,9 +577,21 @@ export const createMobileManualZone = async (
 
     const zone = new Zone(zoneData);
 
+    console.log(
+      "📱 createMobileManualZone: Zone data before save:",
+      JSON.stringify(zoneData, null, 2)
+    );
     await zone.save();
     console.log(
       `📱 createMobileManualZone: Manual zone created with ID: ${zone._id}`
+    );
+    console.log(
+      "📱 createMobileManualZone: Saved zone zoneType:",
+      zone.zoneType
+    );
+    console.log(
+      "📱 createMobileManualZone: Saved zone full data:",
+      JSON.stringify(zone.toObject(), null, 2)
     );
 
     // Update community with the new zone if location hierarchy is provided
@@ -602,9 +614,23 @@ export const createMobileManualZone = async (
       assignedBy: agentId, // Self-assigned
     });
 
+    console.log(
+      "📱 createMobileManualZone: Agent assignment data before save:",
+      JSON.stringify({
+        agentId: agentAssignment.agentId,
+        zoneId: agentAssignment.zoneId,
+        status: agentAssignment.status,
+        effectiveFrom: agentAssignment.effectiveFrom,
+      }, null, 2)
+    );
+
     await agentAssignment.save();
     console.log(
       `📱 createMobileManualZone: Agent assignment created: ${agentAssignment._id}`
+    );
+    console.log(
+      "📱 createMobileManualZone: Agent assignment after save:",
+      JSON.stringify(agentAssignment.toObject(), null, 2)
     );
 
     // Update agent's zoneIds array
@@ -630,6 +656,15 @@ export const createMobileManualZone = async (
         { path: "communityId", select: "name type" },
       ])
       .lean();
+
+    console.log(
+      "📱 createMobileManualZone: Populated zone zoneType:",
+      populatedZone?.zoneType
+    );
+    console.log(
+      "📱 createMobileManualZone: Populated zone data:",
+      JSON.stringify(populatedZone, null, 2)
+    );
 
     // Create activity record for zone creation
     try {
