@@ -1,4 +1,5 @@
 import { Response } from "express";
+import mongoose from "mongoose";
 import { Zone } from "../models/Zone";
 import { User } from "../models/User";
 import { Resident } from "../models/Resident";
@@ -482,6 +483,9 @@ export const createMobileManualZone = async (
     console.log(
       `📱 createMobileManualZone: Creating manual zone for agent ${agentId}`
     );
+    console.log(
+      `📱 createMobileManualZone: req.user.id: ${req.user.id}, req.user.sub: ${req.user.sub}`
+    );
 
     const { name, description, areaId, municipalityId, communityId } = req.body;
 
@@ -606,18 +610,22 @@ export const createMobileManualZone = async (
     }
 
     // Create agent zone assignment record
+    // Convert agentId string to ObjectId for MongoDB
+    const agentObjectId = new mongoose.Types.ObjectId(agentId);
+    
     const agentAssignment = new AgentZoneAssignment({
-      agentId: agentId,
+      agentId: agentObjectId,
       zoneId: zone._id,
       effectiveFrom: new Date(),
       status: "ACTIVE",
-      assignedBy: agentId, // Self-assigned
+      assignedBy: agentObjectId, // Self-assigned
     });
 
     console.log(
       "📱 createMobileManualZone: Agent assignment data before save:",
       JSON.stringify({
         agentId: agentAssignment.agentId,
+        agentIdType: typeof agentAssignment.agentId,
         zoneId: agentAssignment.zoneId,
         status: agentAssignment.status,
         effectiveFrom: agentAssignment.effectiveFrom,
@@ -634,11 +642,11 @@ export const createMobileManualZone = async (
     );
 
     // Update agent's zoneIds array
-    await User.findByIdAndUpdate(agentId, {
+    await User.findByIdAndUpdate(agentObjectId, {
       $addToSet: { zoneIds: zone._id },
     });
     console.log(
-      `📱 createMobileManualZone: Updated agent ${agentId} with new zone`
+      `📱 createMobileManualZone: Updated agent ${agentId} (${agentObjectId}) with new zone ${zone._id}`
     );
 
     // Update agent assignment status

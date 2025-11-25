@@ -1104,12 +1104,18 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
       `\n🔍 getMyTerritories: Fetching territories for agent ${agent.name} (${agentId})`
     );
     console.log(
+      `📋 getMyTerritories: Agent _id: ${agent._id}, agentId from req: ${agentId}`
+    );
+    console.log(
       `📋 getMyTerritories: Agent teams: [${agent.teamIds.join(", ")}]`
     );
     console.log(
       `📋 getMyTerritories: Agent primaryZoneId: ${
         agent.primaryZoneId || "None"
       }`
+    );
+    console.log(
+      `📋 getMyTerritories: Agent zoneIds from user model: [${(agent.zoneIds || []).map((id: any) => id.toString()).join(", ")}]`
     );
 
     // Import ScheduledAssignment model
@@ -1281,15 +1287,23 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
     // Create a map to deduplicate zones by zoneId
     const zoneMap = new Map();
 
-    console.log("📋 getMyTerritories: Processing assignments, total:", allAssignments.length);
+    console.log(
+      "📋 getMyTerritories: Processing assignments, total:",
+      allAssignments.length
+    );
     allAssignments.forEach((item) => {
       const zone = item.assignment.zoneId;
       if (!zone || !zone._id) {
-        console.log("📋 getMyTerritories: WARNING - Assignment with missing zone:", item.assignment._id);
+        console.log(
+          "📋 getMyTerritories: WARNING - Assignment with missing zone:",
+          item.assignment._id
+        );
         return;
       }
       const zoneId = zone._id.toString();
-      console.log(`📋 getMyTerritories: Processing assignment for zone ${zoneId} (${zone.name}) - zoneType: ${zone.zoneType}`);
+      console.log(
+        `📋 getMyTerritories: Processing assignment for zone ${zoneId} (${zone.name}) - zoneType: ${zone.zoneType}`
+      );
 
       // If zone not in map or current assignment is not scheduled (prefer active over scheduled)
       if (
@@ -1299,7 +1313,9 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
         zoneMap.set(zoneId, item);
         console.log(`📋 getMyTerritories: Added zone ${zoneId} to map`);
       } else {
-        console.log(`📋 getMyTerritories: Skipped zone ${zoneId} (already in map or scheduled)`);
+        console.log(
+          `📋 getMyTerritories: Skipped zone ${zoneId} (already in map or scheduled)`
+        );
       }
     });
 
