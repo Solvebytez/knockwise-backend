@@ -3,7 +3,7 @@ import mongoose, { Schema, Document, Model } from "mongoose";
 export interface IZone extends Document {
   name: string;
   description?: string;
-  boundary: {
+  boundary?: {
     type: "Polygon";
     coordinates: number[][][]; // GeoJSON polygon
   };
@@ -51,8 +51,8 @@ const ZoneSchema = new Schema<IZone>(
     name: { type: String, required: true, trim: true },
     description: { type: String, trim: true },
     boundary: {
-      type: { type: String, enum: ["Polygon"], required: true },
-      coordinates: { type: [[[Number]]], required: true },
+      type: { type: String, enum: ["Polygon"], required: false },
+      coordinates: { type: [[[Number]]], required: false },
     },
     buildingData: {
       totalBuildings: { type: Number, default: 0 },

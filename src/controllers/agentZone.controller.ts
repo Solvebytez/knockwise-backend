@@ -81,7 +81,10 @@ export const detectAgentZoneBuildings = async (
     console.log("🎯 detectAgentZoneBuildings: user id", req.user?.id);
 
     if (req.user?.role !== "AGENT") {
-      console.warn("⛔ detectAgentZoneBuildings: unauthorized role", req.user?.role);
+      console.warn(
+        "⛔ detectAgentZoneBuildings: unauthorized role",
+        req.user?.role
+      );
       return res.status(403).json({
         success: false,
         message: "This endpoint is only available for AGENT users",
@@ -123,13 +126,10 @@ export const detectAgentZoneBuildings = async (
     }
 
     const detection = await detectBuildingsWithinPolygon(normalizedPolygon);
-    console.log(
-      "✅ detectAgentZoneBuildings: detection completed",
-      {
-        buildingCount: detection.buildings.length,
-        warningCount: detection.warnings.length,
-      }
-    );
+    console.log("✅ detectAgentZoneBuildings: detection completed", {
+      buildingCount: detection.buildings.length,
+      warningCount: detection.warnings.length,
+    });
 
     return res.status(200).json({
       success: true,
@@ -423,15 +423,18 @@ export const createAgentZone = async (req: AuthRequest, res: Response) => {
       const Activity = require("../models/Activity").default;
       await Activity.create({
         agentId: agentId,
-        activityType: 'ZONE_OPERATION',
+        activityType: "ZONE_OPERATION",
         zoneId: zone._id,
-        operationType: 'CREATE',
+        operationType: "CREATE",
         startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
         notes: `Zone "${name}" created`,
       });
       console.log("🎯 createAgentZone: Activity created for zone creation");
     } catch (activityError) {
-      console.error('🎯 createAgentZone: Error creating zone creation activity:', activityError);
+      console.error(
+        "🎯 createAgentZone: Error creating zone creation activity:",
+        activityError
+      );
       // Don't fail zone creation if activity creation fails
     }
 
@@ -450,6 +453,223 @@ export const createAgentZone = async (req: AuthRequest, res: Response) => {
     res.status(500).json({
       success: false,
       message: "Failed to create zone",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+/**
+ * Create a manual zone for mobile (no boundary required)
+ * This endpoint is specifically for AGENT role users creating manual zones
+ * Manual zones don't have boundaries and properties are added individually
+ */
+export const createMobileManualZone = async (
+  req: AuthRequest,
+  res: Response
+) => {
+  try {
+    console.log("📱 createMobileManualZone: Starting manual zone creation...");
+
+    // Verify the user is an AGENT
+    if (req.user?.role !== "AGENT") {
+      return res.status(403).json({
+        success: false,
+        message: "This endpoint is only available for AGENT users",
+      });
+    }
+
+    const agentId = req.user.id;
+    console.log(
+      `📱 createMobileManualZone: Creating manual zone for agent ${agentId}`
+    );
+
+    const { name, description, areaId, municipalityId, communityId } = req.body;
+
+    // Validate required fields (no boundary required for manual zones)
+    if (!name) {
+      return res.status(400).json({
+        success: false,
+        message: "Zone name is required",
+      });
+    }
+
+    // Validate location hierarchy if provided
+    if (communityId || municipalityId || areaId) {
+      if (!communityId || !municipalityId || !areaId) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "All location hierarchy fields (areaId, municipalityId, communityId) must be provided together",
+        });
+      }
+
+      // Validate community
+      const community = await Community.findById(communityId);
+      if (!community) {
+        return res.status(404).json({
+          success: false,
+          message: "Community not found",
+        });
+      }
+
+      // Validate municipality
+      const municipality = await Municipality.findById(
+        community.municipalityId
+      );
+      if (!municipality) {
+        return res.status(404).json({
+          success: false,
+          message: "Municipality not found for the selected community",
+        });
+      }
+
+      // Validate area
+      const area = await Area.findById(community.areaId);
+      if (!area) {
+        return res.status(404).json({
+          success: false,
+          message: "Area not found for the selected community",
+        });
+      }
+
+      // Ensure IDs match the hierarchy
+      if (
+        areaId !== community.areaId.toString() ||
+        municipalityId !== community.municipalityId.toString()
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Location hierarchy IDs do not match",
+        });
+      }
+
+      console.log("📱 createMobileManualZone: Location hierarchy validated:", {
+        area: area.name,
+        municipality: municipality.name,
+        community: community.name,
+      });
+    }
+
+    // Check if zone name already exists
+    const existingZone = await Zone.findOne({ name });
+    if (existingZone) {
+      return res.status(409).json({
+        success: false,
+        message: "Zone with this name already exists",
+      });
+    }
+
+    // Create the manual zone (no boundary, no overlap check)
+    const zoneData: any = {
+      name,
+      description: description || undefined,
+      assignedAgentId: agentId,
+      teamId: null,
+      status: "ACTIVE",
+      zoneType: "MANUAL", // Set as manual zone
+      createdBy: agentId,
+    };
+
+    // Only include location hierarchy if provided
+    if (areaId) zoneData.areaId = areaId;
+    if (municipalityId) zoneData.municipalityId = municipalityId;
+    if (communityId) zoneData.communityId = communityId;
+
+    const zone = new Zone(zoneData);
+
+    await zone.save();
+    console.log(
+      `📱 createMobileManualZone: Manual zone created with ID: ${zone._id}`
+    );
+
+    // Update community with the new zone if location hierarchy is provided
+    if (communityId) {
+      await Community.findByIdAndUpdate(communityId, {
+        $addToSet: { zoneIds: zone._id },
+      });
+      console.log(
+        "📱 createMobileManualZone: Updated community with new zone ID:",
+        zone._id
+      );
+    }
+
+    // Create agent zone assignment record
+    const agentAssignment = new AgentZoneAssignment({
+      agentId: agentId,
+      zoneId: zone._id,
+      effectiveFrom: new Date(),
+      status: "ACTIVE",
+      assignedBy: agentId, // Self-assigned
+    });
+
+    await agentAssignment.save();
+    console.log(
+      `📱 createMobileManualZone: Agent assignment created: ${agentAssignment._id}`
+    );
+
+    // Update agent's zoneIds array
+    await User.findByIdAndUpdate(agentId, {
+      $addToSet: { zoneIds: zone._id },
+    });
+    console.log(
+      `📱 createMobileManualZone: Updated agent ${agentId} with new zone`
+    );
+
+    // Update agent assignment status
+    if (agentId) {
+      await updateUserAssignmentStatus(agentId);
+    }
+    console.log(`📱 createMobileManualZone: Updated agent assignment status`);
+
+    // Populate the response with zone details
+    const populatedZone = await Zone.findById(zone._id)
+      .populate([
+        { path: "assignedAgentId", select: "name email" },
+        { path: "areaId", select: "name type" },
+        { path: "municipalityId", select: "name type" },
+        { path: "communityId", select: "name type" },
+      ])
+      .lean();
+
+    // Create activity record for zone creation
+    try {
+      const Activity = require("../models/Activity").default;
+      await Activity.create({
+        agentId: agentId,
+        activityType: "ZONE_OPERATION",
+        zoneId: zone._id,
+        operationType: "CREATE",
+        startedAt: new Date(),
+        notes: `Manual zone "${name}" created`,
+      });
+      console.log(
+        "📱 createMobileManualZone: Activity created for zone creation"
+      );
+    } catch (activityError) {
+      console.error(
+        "📱 createMobileManualZone: Error creating zone creation activity:",
+        activityError
+      );
+      // Don't fail zone creation if activity creation fails
+    }
+
+    console.log(
+      "📱 createMobileManualZone: Manual zone creation completed successfully"
+    );
+
+    res.status(201).json({
+      success: true,
+      message: "Manual zone created successfully",
+      data: populatedZone || zone.toObject(),
+    });
+  } catch (error) {
+    console.error(
+      "📱 createMobileManualZone: Error creating manual zone:",
+      error
+    );
+    res.status(500).json({
+      success: false,
+      message: "Failed to create manual zone",
       error: error instanceof Error ? error.message : "Unknown error",
     });
   }
@@ -899,23 +1119,32 @@ export const updateAgentZone = async (req: AuthRequest, res: Response) => {
     try {
       const Activity = require("../models/Activity").default;
       const changes: string[] = [];
-      if (name && name !== zone.name) changes.push(`name: "${zone.name}" → "${name}"`);
-      if (description !== undefined && description !== zone.description) changes.push('description updated');
-      if (boundary) changes.push('boundary updated');
-      if (buildingData) changes.push('building data updated');
-      if (status && status !== zone.status) changes.push(`status: "${zone.status}" → "${status}"`);
-      
+      if (name && name !== zone.name)
+        changes.push(`name: "${zone.name}" → "${name}"`);
+      if (description !== undefined && description !== zone.description)
+        changes.push("description updated");
+      if (boundary) changes.push("boundary updated");
+      if (buildingData) changes.push("building data updated");
+      if (status && status !== zone.status)
+        changes.push(`status: "${zone.status}" → "${status}"`);
+
       await Activity.create({
         agentId: agentId,
-        activityType: 'ZONE_OPERATION',
+        activityType: "ZONE_OPERATION",
         zoneId: id,
-        operationType: 'UPDATE',
+        operationType: "UPDATE",
         startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
-        notes: changes.length > 0 ? `Zone updated: ${changes.join(', ')}` : 'Zone updated',
+        notes:
+          changes.length > 0
+            ? `Zone updated: ${changes.join(", ")}`
+            : "Zone updated",
       });
       console.log("🎯 updateAgentZone: Activity created for zone update");
     } catch (activityError) {
-      console.error('🎯 updateAgentZone: Error creating zone update activity:', activityError);
+      console.error(
+        "🎯 updateAgentZone: Error creating zone update activity:",
+        activityError
+      );
       // Don't fail zone update if activity creation fails
     }
 
@@ -1257,15 +1486,18 @@ export const deleteAgentZone = async (req: AuthRequest, res: Response) => {
       const Activity = require("../models/Activity").default;
       await Activity.create({
         agentId: agentId,
-        activityType: 'ZONE_OPERATION',
+        activityType: "ZONE_OPERATION",
         zoneId: id,
-        operationType: 'DELETE',
+        operationType: "DELETE",
         startedAt: new Date(), // Set startedAt so it counts in "Activities Today"
         notes: `Zone "${zone.name}" deleted`,
       });
       console.log("🎯 deleteAgentZone: Activity created for zone deletion");
     } catch (activityError) {
-      console.error('🎯 deleteAgentZone: Error creating zone deletion activity:', activityError);
+      console.error(
+        "🎯 deleteAgentZone: Error creating zone deletion activity:",
+        activityError
+      );
       // Don't fail zone deletion if activity creation fails
     }
 

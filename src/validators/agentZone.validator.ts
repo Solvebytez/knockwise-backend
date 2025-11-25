@@ -140,3 +140,32 @@ export const deleteAgentZoneValidation = [
     .isMongoId()
     .withMessage("Zone ID must be a valid MongoDB ObjectId"),
 ];
+
+// Validation for creating a mobile manual zone (no boundary required)
+export const createMobileManualZoneValidation = [
+  body("name")
+    .trim()
+    .isLength({ min: 2, max: 100 })
+    .withMessage("Zone name must be between 2 and 100 characters"),
+
+  body("description")
+    .optional()
+    .trim()
+    .isLength({ max: 500 })
+    .withMessage("Description must not exceed 500 characters"),
+
+  body("areaId")
+    .optional()
+    .isMongoId()
+    .withMessage("Area ID must be a valid MongoDB ObjectId"),
+
+  body("municipalityId")
+    .optional()
+    .isMongoId()
+    .withMessage("Municipality ID must be a valid MongoDB ObjectId"),
+
+  body("communityId")
+    .optional()
+    .isMongoId()
+    .withMessage("Community ID must be a valid MongoDB ObjectId"),
+];

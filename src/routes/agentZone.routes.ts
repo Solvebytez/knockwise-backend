@@ -1,6 +1,7 @@
 import { Router } from "express";
 import {
   createAgentZone,
+  createMobileManualZone,
   updateAgentZone,
   getAgentZones,
   getAgentZoneById,
@@ -13,6 +14,7 @@ import { requireAuth, requireRoles } from "../middleware/auth";
 import { validate } from "../utils/validator";
 import {
   createAgentZoneValidation,
+  createMobileManualZoneValidation,
   updateAgentZoneValidation,
   getAgentZonesValidation,
   getAgentZoneByIdValidation,
@@ -132,6 +134,89 @@ router.post(
   requireRoles("AGENT"),
   validate(createAgentZoneValidation),
   createAgentZone
+);
+
+/**
+ * @openapi
+ * /api/agent-zones/manual:
+ *   post:
+ *     summary: Create a new manual zone (no boundary required) for mobile
+ *     tags: [Agent Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name]
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 minLength: 2
+ *                 maxLength: 100
+ *                 example: "My Manual Zone"
+ *               description:
+ *                 type: string
+ *                 maxLength: 500
+ *                 example: "Manual zone for door-to-door sales"
+ *               areaId:
+ *                 type: string
+ *                 format: uuid
+ *                 example: "507f1f77bcf86cd799439011"
+ *               municipalityId:
+ *                 type: string
+ *                 format: uuid
+ *                 example: "507f1f77bcf86cd799439012"
+ *               communityId:
+ *                 type: string
+ *                 format: uuid
+ *                 example: "507f1f77bcf86cd799439013"
+ *     responses:
+ *       201:
+ *         description: Manual zone created successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success:
+ *                   type: boolean
+ *                   example: true
+ *                 message:
+ *                   type: string
+ *                   example: "Manual zone created successfully"
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     _id:
+ *                       type: string
+ *                       example: "507f1f77bcf86cd799439012"
+ *                     name:
+ *                       type: string
+ *                       example: "My Manual Zone"
+ *                     description:
+ *                       type: string
+ *                       example: "Manual zone for door-to-door sales"
+ *                     zoneType:
+ *                       type: string
+ *                       enum: [MANUAL]
+ *                       example: "MANUAL"
+ *                     status:
+ *                       type: string
+ *                       example: "ACTIVE"
+ *       403:
+ *         description: Access denied - not an agent
+ *       409:
+ *         description: Zone name already exists
+ */
+router.post(
+  "/manual",
+  requireAuth,
+  requireRoles("AGENT"),
+  validate(createMobileManualZoneValidation),
+  createMobileManualZone
 );
 
 /**
