@@ -1115,7 +1115,11 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
       }`
     );
     console.log(
-      `📋 getMyTerritories: Agent zoneIds from user model: [${(agent.zoneIds || []).map((id: any) => id.toString()).join(", ")}]`
+      `📋 getMyTerritories: Agent zoneIds from user model: [${(
+        agent.zoneIds || []
+      )
+        .map((id: any) => id.toString())
+        .join(", ")}]`
     );
 
     // Import ScheduledAssignment model

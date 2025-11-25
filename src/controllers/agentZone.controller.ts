@@ -612,7 +612,7 @@ export const createMobileManualZone = async (
     // Create agent zone assignment record
     // Convert agentId string to ObjectId for MongoDB
     const agentObjectId = new mongoose.Types.ObjectId(agentId);
-    
+
     const agentAssignment = new AgentZoneAssignment({
       agentId: agentObjectId,
       zoneId: zone._id,
@@ -623,13 +623,17 @@ export const createMobileManualZone = async (
 
     console.log(
       "📱 createMobileManualZone: Agent assignment data before save:",
-      JSON.stringify({
-        agentId: agentAssignment.agentId,
-        agentIdType: typeof agentAssignment.agentId,
-        zoneId: agentAssignment.zoneId,
-        status: agentAssignment.status,
-        effectiveFrom: agentAssignment.effectiveFrom,
-      }, null, 2)
+      JSON.stringify(
+        {
+          agentId: agentAssignment.agentId,
+          agentIdType: typeof agentAssignment.agentId,
+          zoneId: agentAssignment.zoneId,
+          status: agentAssignment.status,
+          effectiveFrom: agentAssignment.effectiveFrom,
+        },
+        null,
+        2
+      )
     );
 
     await agentAssignment.save();
