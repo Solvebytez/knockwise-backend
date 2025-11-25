@@ -1124,7 +1124,7 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
     }).populate({
       path: "zoneId",
       select:
-        "name description status createdBy areaId municipalityId communityId createdAt updatedAt",
+        "name description status createdBy areaId municipalityId communityId zoneType createdAt updatedAt",
       populate: [
         {
           path: "areaId",
@@ -1154,7 +1154,7 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
       .populate({
         path: "zoneId",
         select:
-          "name description status createdBy areaId municipalityId communityId createdAt updatedAt",
+          "name description status createdBy areaId municipalityId communityId zoneType createdAt updatedAt",
         populate: [
           {
             path: "areaId",
@@ -1186,7 +1186,7 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
       }).populate({
         path: "zoneId",
         select:
-          "name description status createdBy areaId municipalityId communityId createdAt updatedAt",
+          "name description status createdBy areaId municipalityId communityId zoneType createdAt updatedAt",
         populate: [
           {
             path: "areaId",
@@ -1215,7 +1215,7 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
       .populate({
         path: "zoneId",
         select:
-          "name description status createdBy areaId municipalityId communityId createdAt updatedAt",
+          "name description status createdBy areaId municipalityId communityId zoneType createdAt updatedAt",
         populate: [
           {
             path: "areaId",
