@@ -8,6 +8,7 @@ import { AgentZoneAssignment } from "../models/AgentZoneAssignment";
 import { User, IUser } from "../models/User";
 import Activity from "../models/Activity";
 const { ScheduledAssignment } = require("../models/ScheduledAssignment");
+const Team = require("../models/Team");
 
 // Helper function to check if point is inside polygon
 const isPointInPolygon = (
@@ -785,6 +786,252 @@ export const updateResident = async (req: AuthRequest, res: Response) => {
     });
   } catch (error) {
     console.error("❌ Error updating resident:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+// Get all leads for logged-in agent with pagination (status != "not-visited")
+export const getMyLeads = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const agentId = req.user?.sub;
+    const { page = 1, limit = 20 } = req.query;
+
+    if (!agentId) {
+      res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+      return;
+    }
+
+    // Get agent information
+    const agent = await User.findById(agentId);
+    if (!agent || agent.role !== "AGENT") {
+      res.status(404).json({
+        success: false,
+        message: "Agent not found",
+      });
+      return;
+    }
+
+    // Get all zone IDs assigned to this agent (same logic as getMyLatestLeads)
+    const individualZoneAssignments = await AgentZoneAssignment.find({
+      agentId: agent._id,
+      status: { $nin: ["COMPLETED", "CANCELLED"] },
+      effectiveTo: null,
+    }).select("zoneId");
+
+    const teamZoneAssignments = await AgentZoneAssignment.find({
+      teamId: { $in: agent.teamIds || [] },
+      status: { $nin: ["COMPLETED", "CANCELLED"] },
+      effectiveTo: null,
+    }).select("zoneId");
+
+    const pendingIndividualScheduled = await ScheduledAssignment.find({
+      agentId: agent._id,
+      status: "PENDING",
+    }).select("zoneId");
+
+    const pendingTeamScheduled = await ScheduledAssignment.find({
+      teamId: { $in: agent.teamIds || [] },
+      status: "PENDING",
+    }).select("zoneId");
+
+    const zoneIds = new Set<string>();
+    [
+      ...individualZoneAssignments,
+      ...teamZoneAssignments,
+      ...pendingIndividualScheduled,
+      ...pendingTeamScheduled,
+    ].forEach((assignment: any) => {
+      const zoneId = assignment.zoneId?.toString();
+      if (zoneId) {
+        zoneIds.add(zoneId);
+      }
+    });
+
+    let allZoneIds = Array.from(zoneIds);
+    if (allZoneIds.length === 0 && agent.zoneIds && agent.zoneIds.length > 0) {
+      allZoneIds = agent.zoneIds.map((id: any) => id.toString());
+    }
+
+    if (allZoneIds.length === 0) {
+      res.json({
+        success: true,
+        data: [],
+        pagination: {
+          page: Number(page),
+          limit: Number(limit),
+          total: 0,
+          pages: 0,
+        },
+      });
+      return;
+    }
+
+    // Get leads with pagination
+    const skip = (Number(page) - 1) * Number(limit);
+    const leads = await Resident.find({
+      zoneId: { $in: allZoneIds },
+      status: { $ne: "not-visited" },
+    })
+      .populate("zoneId", "name")
+      .populate("propertyDataId", "ownerName")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(Number(limit))
+      .lean();
+
+    const total = await Resident.countDocuments({
+      zoneId: { $in: allZoneIds },
+      status: { $ne: "not-visited" },
+    });
+
+    // Format response
+    const formattedLeads = leads.map((lead: any) => ({
+      _id: lead._id,
+      address: lead.address,
+      status: lead.status,
+      createdAt: lead.createdAt,
+      zoneName: lead.zoneId?.name || "Unknown Zone",
+      ownerName: lead.propertyDataId?.ownerName || null,
+    }));
+
+    res.json({
+      success: true,
+      data: formattedLeads,
+      pagination: {
+        page: Number(page),
+        limit: Number(limit),
+        total,
+        pages: Math.ceil(total / Number(limit)),
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error fetching leads:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+// Get latest leads for logged-in agent (top 3, status != "not-visited")
+export const getMyLatestLeads = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const agentId = req.user?.sub;
+
+    if (!agentId) {
+      res.status(401).json({
+        success: false,
+        message: "Unauthorized",
+      });
+      return;
+    }
+
+    // Get agent information
+    const agent = await User.findById(agentId);
+    if (!agent || agent.role !== "AGENT") {
+      res.status(404).json({
+        success: false,
+        message: "Agent not found",
+      });
+      return;
+    }
+
+    // Get all zone IDs assigned to this agent
+    // 1. Individual zone assignments
+    const individualZoneAssignments = await AgentZoneAssignment.find({
+      agentId: agent._id,
+      status: { $nin: ["COMPLETED", "CANCELLED"] },
+      effectiveTo: null,
+    }).select("zoneId");
+
+    // 2. Team zone assignments
+    const teamZoneAssignments = await AgentZoneAssignment.find({
+      teamId: { $in: agent.teamIds || [] },
+      status: { $nin: ["COMPLETED", "CANCELLED"] },
+      effectiveTo: null,
+    }).select("zoneId");
+
+    // 3. Scheduled individual assignments
+    const pendingIndividualScheduled = await ScheduledAssignment.find({
+      agentId: agent._id,
+      status: "PENDING",
+    }).select("zoneId");
+
+    // 4. Scheduled team assignments
+    const pendingTeamScheduled = await ScheduledAssignment.find({
+      teamId: { $in: agent.teamIds || [] },
+      status: "PENDING",
+    }).select("zoneId");
+
+    // Combine all zone IDs and deduplicate
+    const zoneIds = new Set<string>();
+    [
+      ...individualZoneAssignments,
+      ...teamZoneAssignments,
+      ...pendingIndividualScheduled,
+      ...pendingTeamScheduled,
+    ].forEach((assignment: any) => {
+      const zoneId = assignment.zoneId?.toString();
+      if (zoneId) {
+        zoneIds.add(zoneId);
+      }
+    });
+
+    // If no assignments found, fall back to User model's zoneIds
+    let allZoneIds = Array.from(zoneIds);
+    if (allZoneIds.length === 0 && agent.zoneIds && agent.zoneIds.length > 0) {
+      allZoneIds = agent.zoneIds.map((id: any) => id.toString());
+    }
+
+    if (allZoneIds.length === 0) {
+      res.json({
+        success: true,
+        data: [],
+      });
+      return;
+    }
+
+    // Get latest leads (status != "not-visited")
+    const leads = await Resident.find({
+      zoneId: { $in: allZoneIds },
+      status: { $ne: "not-visited" },
+    })
+      .populate("zoneId", "name")
+      .populate("propertyDataId", "ownerName")
+      .sort({ createdAt: -1 })
+      .limit(3)
+      .lean();
+
+    // Format response
+    const formattedLeads = leads.map((lead: any) => ({
+      _id: lead._id,
+      address: lead.address,
+      status: lead.status,
+      createdAt: lead.createdAt,
+      zoneName: lead.zoneId?.name || "Unknown Zone",
+      ownerName: lead.propertyDataId?.ownerName || null,
+    }));
+
+    res.json({
+      success: true,
+      data: formattedLeads,
+    });
+  } catch (error) {
+    console.error("❌ Error fetching latest leads:", error);
     res.status(500).json({
       success: false,
       message: "Internal server error",
