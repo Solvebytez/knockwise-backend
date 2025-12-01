@@ -926,7 +926,8 @@ export const getMyNotVisitedResidents = async (
 
     if (zoneIds.length === 0) {
       console.log("📝 [getMyNotVisitedResidents] No zones found for user");
-      return res.json([]);
+      res.json([]);
+      return;
     }
 
     // Find residents with status "not-visited" from these zones
