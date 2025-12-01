@@ -1355,6 +1355,9 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
 
         // Calculate statistics directly from Resident collection for real-time accuracy
         const totalHouses = await Resident.countDocuments({ zoneId: zone._id });
+        console.log(
+          `📊 getMyTerritories: Zone "${zone.name}" (${zone._id}) - totalHouses: ${totalHouses}`
+        );
 
         // Count visited (includes: visited, interested, callback, appointment, follow-up)
         const visitedCount = await Resident.countDocuments({
@@ -1369,12 +1372,18 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
             ],
           },
         });
+        console.log(
+          `📊 getMyTerritories: Zone "${zone.name}" - visitedCount: ${visitedCount}`
+        );
 
         // Count not visited
         const notVisitedCount = await Resident.countDocuments({
           zoneId: zone._id,
           status: "not-visited",
         });
+        console.log(
+          `📊 getMyTerritories: Zone "${zone.name}" - notVisitedCount: ${notVisitedCount}`
+        );
 
         // Count interested
         const interestedCount = await Resident.countDocuments({
@@ -1449,7 +1458,9 @@ export const getMyTerritories = async (req: AuthRequest, res: Response) => {
           communityId: zone.communityId,
         };
         console.log(
-          `📋 getMyTerritories: Territory "${territoryData.name}" - zoneType: ${territoryData.zoneType}`
+          `📋 getMyTerritories: Territory "${territoryData.name}" - zoneType: ${
+            territoryData.zoneType
+          }, statistics: ${JSON.stringify(territoryData.statistics)}`
         );
         return territoryData;
       })

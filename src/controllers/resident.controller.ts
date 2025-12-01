@@ -106,7 +106,20 @@ export const createResident = async (
       assignedAgentId: createData.assignedAgentId || currentUserId, // Assign to current agent if not specified
     });
 
+    console.log("📝 [createResident] Creating resident with:", {
+      zoneId: createData.zoneId,
+      zoneIdType: typeof createData.zoneId,
+      address: createData.address,
+      dataSource: "MANUAL",
+    });
+
     await newResident.save();
+    
+    console.log("✅ [createResident] Resident created:", {
+      residentId: newResident._id,
+      zoneId: newResident.zoneId,
+      zoneIdType: typeof newResident.zoneId,
+    });
 
     // Populate the response
     const populatedResident = await Resident.findById(newResident._id)

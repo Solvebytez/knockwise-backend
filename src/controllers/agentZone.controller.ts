@@ -723,6 +723,219 @@ export const createMobileManualZone = async (
 };
 
 /**
+ * Update a manual zone for mobile (only name, description, location)
+ * This endpoint is specifically for AGENT role users updating manual zones
+ * Manual zones don't have boundaries and properties are preserved
+ */
+export const updateMobileManualZone = async (
+  req: AuthRequest,
+  res: Response
+) => {
+  try {
+    console.log("📱 updateMobileManualZone: Starting manual zone update...");
+
+    // Verify the user is an AGENT
+    if (req.user?.role !== "AGENT") {
+      return res.status(403).json({
+        success: false,
+        message: "This endpoint is only available for AGENT users",
+      });
+    }
+
+    const agentId = req.user.id;
+    const { id } = req.params;
+    const { name, description, areaId, municipalityId, communityId } = req.body;
+
+    console.log(`📱 updateMobileManualZone: Agent ${agentId} updating zone ${id}`);
+    console.log("📱 updateMobileManualZone: Request body:", {
+      name,
+      description,
+      areaId,
+      municipalityId,
+      communityId,
+    });
+
+    // Find the zone and verify ownership
+    const zone = await Zone.findById(id);
+    if (!zone) {
+      return res.status(404).json({
+        success: false,
+        message: "Zone not found",
+      });
+    }
+
+    // Verify it's a manual zone
+    if (zone.zoneType !== "MANUAL") {
+      return res.status(400).json({
+        success: false,
+        message: "This endpoint is only for manual zones. Use /agent-zones/:id for map zones.",
+      });
+    }
+
+    // Verify the agent owns this zone
+    if (zone.createdBy?.toString() !== agentId) {
+      return res.status(403).json({
+        success: false,
+        message: "You can only update zones you created",
+      });
+    }
+
+    // Validate location hierarchy if provided
+    if (communityId || municipalityId || areaId) {
+      if (!communityId || !municipalityId || !areaId) {
+        return res.status(400).json({
+          success: false,
+          message:
+            "All location hierarchy fields (areaId, municipalityId, communityId) must be provided together",
+        });
+      }
+
+      // Validate community
+      const community = await Community.findById(communityId);
+      if (!community) {
+        return res.status(404).json({
+          success: false,
+          message: "Community not found",
+        });
+      }
+
+      // Validate municipality
+      const municipality = await Municipality.findById(
+        community.municipalityId
+      );
+      if (!municipality) {
+        return res.status(404).json({
+          success: false,
+          message: "Municipality not found for the selected community",
+        });
+      }
+
+      // Validate area
+      const area = await Area.findById(community.areaId);
+      if (!area) {
+        return res.status(404).json({
+          success: false,
+          message: "Area not found for the selected community",
+        });
+      }
+
+      // Ensure IDs match the hierarchy
+      if (
+        areaId !== community.areaId.toString() ||
+        municipalityId !== community.municipalityId.toString()
+      ) {
+        return res.status(400).json({
+          success: false,
+          message: "Location hierarchy IDs do not match",
+        });
+      }
+    }
+
+    // Check if zone name already exists (excluding current zone)
+    if (name && name !== zone.name) {
+      const existingZone = await Zone.findOne({
+        name,
+        _id: { $ne: id },
+      });
+      if (existingZone) {
+        return res.status(409).json({
+          success: false,
+          message: "Zone with this name already exists",
+        });
+      }
+    }
+
+    // Build update data (only name, description, location - NO buildingData, NO boundary)
+    const updateData: any = {};
+    if (name !== undefined) updateData.name = name;
+    if (description !== undefined) updateData.description = description;
+    if (areaId !== undefined) updateData.areaId = areaId;
+    if (municipalityId !== undefined) updateData.municipalityId = municipalityId;
+    if (communityId !== undefined) updateData.communityId = communityId;
+
+    console.log("📱 updateMobileManualZone: Update data:", updateData);
+
+    // Update the zone (preserves all existing data including residents)
+    const updatedZone = await Zone.findByIdAndUpdate(id, updateData, {
+      new: true,
+      runValidators: true,
+    }).populate([
+      { path: "assignedAgentId", select: "name email" },
+      { path: "areaId", select: "name type" },
+      { path: "municipalityId", select: "name type" },
+      { path: "communityId", select: "name type" },
+    ]);
+
+    console.log("📱 updateMobileManualZone: Zone updated successfully");
+
+    // Update community association if location changed
+    if (communityId && communityId !== zone.communityId?.toString()) {
+      // Remove from old community
+      if (zone.communityId) {
+        await Community.findByIdAndUpdate(zone.communityId, {
+          $pull: { zoneIds: id },
+        });
+      }
+      // Add to new community
+      await Community.findByIdAndUpdate(communityId, {
+        $addToSet: { zoneIds: id },
+      });
+      console.log("📱 updateMobileManualZone: Updated community association");
+    }
+
+    // Create activity record for zone update
+    try {
+      const Activity = require("../models/Activity").default;
+      const changes: string[] = [];
+      if (name && name !== zone.name)
+        changes.push(`name: "${zone.name}" → "${name}"`);
+      if (description !== undefined && description !== zone.description)
+        changes.push("description updated");
+      if (areaId && areaId !== zone.areaId?.toString()) changes.push("location updated");
+
+      await Activity.create({
+        agentId: agentId,
+        activityType: "ZONE_OPERATION",
+        zoneId: id,
+        operationType: "UPDATE",
+        startedAt: new Date(),
+        notes:
+          changes.length > 0
+            ? `Manual zone updated: ${changes.join(", ")}`
+            : "Manual zone updated",
+      });
+      console.log("📱 updateMobileManualZone: Activity created for zone update");
+    } catch (activityError) {
+      console.error(
+        "📱 updateMobileManualZone: Error creating zone update activity:",
+        activityError
+      );
+      // Don't fail zone update if activity creation fails
+    }
+
+    console.log(
+      "📱 updateMobileManualZone: Manual zone update completed successfully"
+    );
+
+    res.json({
+      success: true,
+      message: "Manual zone updated successfully",
+      data: updatedZone,
+    });
+  } catch (error) {
+    console.error(
+      "📱 updateMobileManualZone: Error updating manual zone:",
+      error
+    );
+    res.status(500).json({
+      success: false,
+      message: "Failed to update manual zone",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
+
+/**
  * Update an agent's own zone
  * Agents can only update zones they created
  */

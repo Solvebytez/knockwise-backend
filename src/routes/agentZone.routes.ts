@@ -2,6 +2,7 @@ import { Router } from "express";
 import {
   createAgentZone,
   createMobileManualZone,
+  updateMobileManualZone,
   updateAgentZone,
   getAgentZones,
   getAgentZoneById,
@@ -571,6 +572,59 @@ router.post(
  *       409:
  *         description: Zone name already exists or overlaps with existing zones
  */
+/**
+ * @openapi
+ * /api/agent-zones/manual/{id}:
+ *   put:
+ *     summary: Update a manual zone (name, description, location only)
+ *     tags: [Agent Zones]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *         description: Zone ID
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               name:
+ *                 type: string
+ *                 minLength: 2
+ *                 maxLength: 100
+ *               description:
+ *                 type: string
+ *                 maxLength: 500
+ *               areaId:
+ *                 type: string
+ *               municipalityId:
+ *                 type: string
+ *               communityId:
+ *                 type: string
+ *     responses:
+ *       200:
+ *         description: Manual zone updated successfully
+ *       403:
+ *         description: Access denied - not an agent or not zone owner
+ *       404:
+ *         description: Zone not found
+ *       409:
+ *         description: Zone name already exists
+ */
+router.put(
+  "/manual/:id",
+  requireAuth,
+  requireRoles("AGENT"),
+  validate(updateAgentZoneValidation),
+  updateMobileManualZone
+);
+
 router.put(
   "/:id",
   requireAuth,
