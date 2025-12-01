@@ -906,8 +906,9 @@ const validateResidentUpdate = (
 };
 
 /**
- * Get not-visited residents from zones created by the current user
- * Returns the latest not-visited properties for display on home screen
+ * Get leads (visited residents) from zones created by the current user
+ * Returns the latest properties with status other than "not-visited" for display on home screen
+ * Includes: visited, interested, callback, appointment, follow-up, not-interested
  */
 export const getMyNotVisitedResidents = async (
   req: AuthRequest,
@@ -918,7 +919,7 @@ export const getMyNotVisitedResidents = async (
     const currentUserId = currentUser?.sub || currentUser?.id;
     const limit = parseInt(req.query.limit as string) || 3;
 
-    console.log("📝 [getMyNotVisitedResidents] Fetching not-visited residents for user:", currentUserId);
+    console.log("📝 [getMyNotVisitedResidents] Fetching leads (visited residents) for user:", currentUserId);
 
     // Find all zones created by this user
     const userZones = await Zone.find({ createdBy: currentUserId }).select("_id");
@@ -930,19 +931,19 @@ export const getMyNotVisitedResidents = async (
       return;
     }
 
-    // Find residents with status "not-visited" from these zones
-    const notVisitedResidents = await Resident.find({
+    // Find residents with status NOT "not-visited" from these zones (all visited/lead statuses)
+    const leads = await Resident.find({
       zoneId: { $in: zoneIds },
-      status: "not-visited",
+      status: { $ne: "not-visited" }, // All statuses except "not-visited"
     })
       .populate("zoneId", "name")
       .populate("assignedAgentId", "name email")
       .sort({ updatedAt: -1, createdAt: -1 }) // Latest first
       .limit(limit);
 
-    console.log("✅ [getMyNotVisitedResidents] Found residents:", notVisitedResidents.length);
+    console.log("✅ [getMyNotVisitedResidents] Found leads:", leads.length);
 
-    res.json(notVisitedResidents);
+    res.json(leads);
   } catch (error) {
     console.error("❌ Error fetching not-visited residents:", error);
     res.status(500).json({
