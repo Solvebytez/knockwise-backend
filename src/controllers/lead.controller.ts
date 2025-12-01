@@ -3,7 +3,27 @@ import Lead from '../models/Lead';
 import { AuthRequest } from '../middleware/auth';
 
 export async function createLead(req: AuthRequest, res: Response): Promise<void> {
-  const lead = await Lead.create({ ...req.body, lastActivityAt: new Date() });
+  const agentId = req.user!.sub || req.user!.id;
+  
+  console.log("📝 [createLead] Creating lead with:", {
+    agentId,
+    body: req.body,
+  });
+  
+  // Auto-assign to current agent if not specified
+  const leadData = {
+    ...req.body,
+    assignedAgentId: req.body.assignedAgentId || agentId,
+    lastActivityAt: new Date(),
+  };
+  
+  const lead = await Lead.create(leadData);
+  
+  console.log("✅ [createLead] Lead created:", {
+    leadId: lead._id,
+    assignedAgentId: lead.assignedAgentId,
+  });
+  
   res.status(201).json(lead);
 }
 
@@ -13,8 +33,14 @@ export async function listLeads(_req: Request, res: Response): Promise<void> {
 }
 
 export async function listMyLeads(req: AuthRequest, res: Response): Promise<void> {
-  const agentId = req.user!.sub;
+  const agentId = req.user!.sub || req.user!.id;
+  
+  console.log("📝 [listMyLeads] Fetching leads for agent:", agentId);
+  
   const leads = await Lead.find({ assignedAgentId: agentId }).sort({ updatedAt: -1 });
+  
+  console.log("✅ [listMyLeads] Found leads:", leads.length);
+  
   res.json(leads);
 }
 
