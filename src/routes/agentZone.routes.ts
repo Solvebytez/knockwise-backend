@@ -2,7 +2,6 @@ import { Router } from "express";
 import {
   createAgentZone,
   createMobileManualZone,
-  updateMobileManualZone,
   updateAgentZone,
   getAgentZones,
   getAgentZoneById,
@@ -218,81 +217,6 @@ router.post(
   requireRoles("AGENT"),
   validate(createMobileManualZoneValidation),
   createMobileManualZone
-);
-
-/**
- * @openapi
- * /api/agent-zones/manual/{id}:
- *   put:
- *     summary: Update a manual zone (no boundary) for mobile
- *     tags: [Agent Zones]
- *     security:
- *       - bearerAuth: []
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         schema:
- *           type: string
- *           format: uuid
- *         description: Zone ID
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               name:
- *                 type: string
- *                 minLength: 2
- *                 maxLength: 100
- *                 example: "Updated Manual Zone"
- *               description:
- *                 type: string
- *                 maxLength: 500
- *                 example: "Updated description"
- *               areaId:
- *                 type: string
- *                 format: uuid
- *                 example: "507f1f77bcf86cd799439011"
- *               municipalityId:
- *                 type: string
- *                 format: uuid
- *                 example: "507f1f77bcf86cd799439012"
- *               communityId:
- *                 type: string
- *                 format: uuid
- *                 example: "507f1f77bcf86cd799439013"
- *     responses:
- *       200:
- *         description: Manual zone updated successfully
- *         content:
- *           application/json:
- *             schema:
- *               type: object
- *               properties:
- *                 success:
- *                   type: boolean
- *                   example: true
- *                 message:
- *                   type: string
- *                   example: "Manual zone updated successfully"
- *                 data:
- *                   type: object
- *       403:
- *         description: Access denied - not an agent or not zone owner
- *       404:
- *         description: Zone not found
- *       409:
- *         description: Zone name already exists
- */
-router.put(
-  "/manual/:id",
-  requireAuth,
-  requireRoles("AGENT"),
-  validate(createMobileManualZoneValidation),
-  updateMobileManualZone
 );
 
 /**
