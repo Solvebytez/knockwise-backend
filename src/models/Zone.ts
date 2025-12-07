@@ -22,10 +22,10 @@ export interface IZone extends Document {
           | "not-visited"
           | "interested"
           | "visited"
-          | "callback"
           | "appointment"
           | "follow-up"
-          | "not-interested";
+          | "not-interested"
+          | "not-opened";
         notes?: string;
         phone?: string;
         email?: string;
@@ -72,10 +72,10 @@ const ZoneSchema = new Schema<IZone>(
               "not-visited",
               "interested",
               "visited",
-              "callback",
               "appointment",
               "follow-up",
               "not-interested",
+              "not-opened",
             ],
             default: "not-visited",
           },

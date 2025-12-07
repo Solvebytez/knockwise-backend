@@ -721,6 +721,7 @@ export const updateResident = async (req: AuthRequest, res: Response) => {
           'appointment': 'APPOINTMENT_SET',
           'follow-up': 'FOLLOW_UP',
           'not-interested': 'NOT_INTERESTED',
+          'not-opened': 'NO_ANSWER', // Agent visited but owner didn't open the door (no answer)
         };
         
         const visitResponse = visitResponseMap[updateData.status] || 'NO_ANSWER';

@@ -4,10 +4,10 @@ export type ResidentStatus =
   | "not-visited"
   | "interested"
   | "visited"
-  | "callback"
   | "appointment"
   | "follow-up"
-  | "not-interested";
+  | "not-interested"
+  | "not-opened";
 
 export type ResidentDataSource = "AUTO" | "MANUAL";
 
@@ -46,10 +46,10 @@ const ResidentSchema = new Schema<IResident>(
         "not-visited",
         "interested",
         "visited",
-        "callback",
         "appointment",
         "follow-up",
         "not-interested",
+        "not-opened",
       ],
       default: "not-visited",
       index: true,

@@ -73,3 +73,13 @@ async function checkAllResidents() {
 void checkAllResidents();
 
 
+
+
+
+
+
+
+
+
+
+
