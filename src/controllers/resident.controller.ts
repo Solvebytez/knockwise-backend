@@ -954,3 +954,111 @@ export const getMyNotVisitedResidents = async (
     });
   }
 };
+
+/**
+ * Get all properties (residents) from zones created by the current user
+ * Returns all properties with pagination and optional status filtering
+ * Used for "All Properties" screen
+ */
+export const getMyAllProperties = async (
+  req: AuthRequest,
+  res: Response
+): Promise<void> => {
+  try {
+    const currentUser = req.user;
+    const currentUserId = currentUser?.sub || currentUser?.id;
+    const page = parseInt(req.query.page as string) || 1;
+    const limit = parseInt(req.query.limit as string) || 50;
+    const status = req.query.status as string | undefined;
+    const search = req.query.search as string | undefined;
+
+    console.log("📝 [getMyAllProperties] Fetching all properties for user:", currentUserId);
+
+    // Find all zones created by this user
+    const userZones = await Zone.find({ createdBy: currentUserId }).select("_id name zoneType");
+    const zoneIds = userZones.map((zone) => zone._id);
+
+    if (zoneIds.length === 0) {
+      console.log("📝 [getMyAllProperties] No zones found for user");
+      res.json({
+        success: true,
+        data: {
+          residents: [],
+          pagination: {
+            page: 1,
+            limit,
+            total: 0,
+            pages: 0,
+          },
+        },
+      });
+      return;
+    }
+
+    // Build filter for residents
+    const filter: any = { zoneId: { $in: zoneIds } };
+    
+    // Filter by status if provided
+    if (status) {
+      filter.status = status;
+    }
+
+    // Filter by search term (address, house number, notes)
+    if (search) {
+      filter.$or = [
+        { address: { $regex: search, $options: "i" } },
+        { notes: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const skip = (page - 1) * limit;
+
+    // Find residents with pagination
+    const residents = await Resident.find(filter)
+      .populate("zoneId", "name zoneType")
+      .populate("assignedAgentId", "name email")
+      .populate("propertyDataId", "ownerName ownerPhone ownerEmail")
+      .sort({ updatedAt: -1, createdAt: -1 }) // Latest first
+      .skip(skip)
+      .limit(limit);
+
+    const total = await Resident.countDocuments(filter);
+
+    // Get status counts for summary
+    const statusCounts = await Resident.aggregate([
+      { $match: { zoneId: { $in: zoneIds } } },
+      { $group: { _id: "$status", count: { $sum: 1 } } },
+    ]);
+
+    const statusSummary = statusCounts.reduce((acc, item) => {
+      acc[item._id] = item.count;
+      return acc;
+    }, {} as Record<string, number>);
+
+    console.log("✅ [getMyAllProperties] Found properties:", residents.length, "Total:", total);
+
+    res.json({
+      success: true,
+      data: {
+        residents,
+        pagination: {
+          page,
+          limit,
+          total,
+          pages: Math.ceil(total / limit),
+        },
+        summary: {
+          totalProperties: total,
+          statusCounts: statusSummary,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("❌ Error fetching all properties:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to fetch all properties",
+      error: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+};
