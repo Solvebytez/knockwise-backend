@@ -1015,7 +1015,15 @@ export const getMyAllProperties = async (
 
     // Find residents with pagination
     const residents = await Resident.find(filter)
-      .populate("zoneId", "name zoneType")
+      .populate({
+        path: "zoneId",
+        select: "name zoneType areaId municipalityId communityId",
+        populate: [
+          { path: "areaId", select: "name" },
+          { path: "municipalityId", select: "name" },
+          { path: "communityId", select: "name" },
+        ],
+      })
       .populate("assignedAgentId", "name email")
       .populate("propertyDataId", "ownerName ownerPhone ownerEmail")
       .sort({ updatedAt: -1, createdAt: -1 }) // Latest first
